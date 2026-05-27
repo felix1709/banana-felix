@@ -1,0 +1,5 @@
+# Ignore everything except banana-canvas project
+*
+!banana-canvas/
+!banana-canvas/**
+!.gitignore
