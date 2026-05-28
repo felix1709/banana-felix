@@ -220,7 +220,7 @@ export function getDefaultSettings(type: NodeType): AnyNodeSettings {
     case "gen-image":
       return { model: "gpt-image-2", ratio: "1:1", resolution: "Auto", batchCount: 1, compactImageWidget: true, isCollapsed: false, refAnnotations: {}, localPrompt: "", isAutoPrompt: true };
     case "gen-video":
-      return { model: "veo-2", duration: 4, fps: 24, resolution: "1280x720", seed: -1, negativePrompt: "" };
+      return { model: "seedance-2.0", duration: 5, fps: 24, resolution: "720p", seed: -1, negativePrompt: "", ratio: "16:9", generateAudio: true, smartDuration: false, referenceMode: "multimodal", startFrameRef: "", endFrameRef: "" };
     case "preview":
       return { autoPlay: true, zoom: 1 };
     case "local-save":
@@ -242,7 +242,7 @@ export function getDefaultSettings(type: NodeType): AnyNodeSettings {
     case "table-editor-node":
       return { rows: 4, columns: 3, headers: "场景,描述,时长" };
     case "canvas-node":
-      return { brushSize: 4, brushColor: "#ffffff", backgroundColor: "#000000", strokes: [], tool: "brush", canvasPrompt: "", model: "gpt-image-2", ratio: "16:9", refBindings: [], selectedRefId: "" };
+      return { brushSize: 4, brushColor: "#ffffff", backgroundColor: "#000000", backgroundImageUrl: "", backgroundFit: "contain", strokes: [], tool: "brush", canvasPrompt: "", model: "gpt-image-2", ratio: "16:9", refBindings: [], selectedRefId: "" };
     case "doodle-canvas":
       return { brushSize: 3, brushColor: "#3b82f6", opacity: 1 };
     case "gen-music":

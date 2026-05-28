@@ -8,7 +8,10 @@
     "opener:default",
     "fs:default",
     "fs:allow-read-file",
-    "fs:allow-write-file",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "$DESKTOP/**" }, { "path": "$DOCUMENTS/**" }]
+    },
     "fs:allow-read-dir",
     "fs:allow-exists",
     "fs:allow-mkdir",

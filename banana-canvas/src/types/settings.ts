@@ -33,6 +33,12 @@ export interface GenVideoSettings {
   resolution: string;
   seed: number;
   negativePrompt: string;
+  ratio: string;
+  generateAudio: boolean;
+  smartDuration: boolean;
+  referenceMode: "multimodal" | "first_last_frame" | "first_frame" | "last_frame";
+  startFrameRef: string;
+  endFrameRef: string;
 }
 
 export interface PreviewSettings {
@@ -143,6 +149,8 @@ export interface CanvasNodeSettings {
   brushSize: number;
   brushColor: string;
   backgroundColor: string;
+  backgroundImageUrl: string;
+  backgroundFit: "contain" | "cover" | "stretch";
   strokes: CanvasStroke[];
   tool: "brush" | "eraser";
   canvasPrompt: string;

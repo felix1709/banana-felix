@@ -41,11 +41,7 @@ export const NODE_PORT_CONFIG: Partial<Record<NodeType, { inputs: PortConfig[]; 
   },
   "gen-image": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "gen-video": {
-    inputs: [
-      { id: "default", label: "参考图", position: 0.3 },
-      { id: "veo_start", label: "起始帧", position: 0.5 },
-      { id: "veo_end", label: "结束帧", position: 0.7 },
-    ],
+    inputs: [{ id: "default", label: "参考", position: 0.5 }],
     outputs: [{ id: "default", position: 0.5 }],
   },
   preview: { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },

@@ -13,6 +13,9 @@ interface GenerationJob {
   createdAt: number;
   error?: string;
   resultUrl?: string;
+  apiBaseUrl?: string;
+  apiApiKey?: string;
+  log?: string[];
 }
 
 interface JobState {
@@ -21,6 +24,7 @@ interface JobState {
 
   addJob: (job: GenerationJob) => string;
   updateJob: (id: string, patch: Partial<GenerationJob>) => void;
+  appendJobLog: (id: string, entry: string) => void;
   removeJob: (id: string) => void;
   setActiveJob: (id: string | null) => void;
   getJobsByNodeId: (nodeId: string) => GenerationJob[];
@@ -44,6 +48,15 @@ export const useJobStore = create<JobState>()(
       set((state) => {
         const idx = state.jobs.findIndex((j) => j.id === id);
         if (idx !== -1) Object.assign(state.jobs[idx], patch);
+      }),
+
+    appendJobLog: (id, entry) =>
+      set((state) => {
+        const idx = state.jobs.findIndex((j) => j.id === id);
+        if (idx !== -1) {
+          if (!state.jobs[idx].log) state.jobs[idx].log = [];
+          state.jobs[idx].log!.push(`[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${entry}`);
+        }
       }),
 
     removeJob: (id) =>

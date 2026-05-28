@@ -65,6 +65,7 @@ export const IMAGE_MODELS: ModelDefinition[] = [
 // --- Video Models ---
 
 export const VIDEO_MODELS: ModelDefinition[] = [
+  { id: "seedance-2.0", label: "Seedance 2.0", provider: "bytedance", type: "video" },
   { id: "veo-2", label: "Veo 2", provider: "google", type: "video" },
   { id: "kling-v1.5", label: "可灵 V1.5", provider: "kling", type: "video" },
   { id: "kling-v1", label: "可灵 V1", provider: "kling", type: "video" },

@@ -146,9 +146,31 @@ function renderStrokesToCanvas(
   backgroundColor: string,
   canvasWidth: number,
   canvasHeight: number,
+  bgImage?: HTMLImageElement | null,
+  backgroundFit?: "contain" | "cover" | "stretch",
+  backgroundImageUrl?: string,
 ): void {
   ctx.fillStyle = backgroundColor;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  // Draw background image if present
+  if (bgImage && backgroundImageUrl) {
+    const imgW = bgImage.naturalWidth;
+    const imgH = bgImage.naturalHeight;
+    let dx = 0, dy = 0, dw = canvasWidth, dh = canvasHeight;
+    const fit = backgroundFit ?? "contain";
+
+    if (fit === "contain") {
+      const scale = Math.min(canvasWidth / imgW, canvasHeight / imgH);
+      dw = imgW * scale; dh = imgH * scale;
+      dx = (canvasWidth - dw) / 2; dy = (canvasHeight - dh) / 2;
+    } else if (fit === "cover") {
+      const scale = Math.max(canvasWidth / imgW, canvasHeight / imgH);
+      dw = imgW * scale; dh = imgH * scale;
+      dx = (canvasWidth - dw) / 2; dy = (canvasHeight - dh) / 2;
+    }
+    ctx.drawImage(bgImage, dx, dy, dw, dh);
+  }
 
   for (const cs of strokes) {
     const { stroke } = cs;
@@ -269,6 +291,8 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
   const [completedStatus, setCompletedStatus] = useState(false);
   const [brushColorOpen, setBrushColorOpen] = useState(false);
   const [bgColorOpen, setBgColorOpen] = useState(false);
+  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
   const [refColorOpenId, setRefColorOpenId] = useState<string | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [savedGeometry, setSavedGeometry] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -521,10 +545,19 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    renderStrokesToCanvas(ctx, settings.strokes, settings.backgroundColor, canvas.width / dpr, canvas.height / dpr);
-  }, [ensureCanvasSize, settings.strokes, settings.backgroundColor]);
+    renderStrokesToCanvas(ctx, settings.strokes, settings.backgroundColor, canvas.width / dpr, canvas.height / dpr, bgImage, settings.backgroundFit, settings.backgroundImageUrl);
+  }, [ensureCanvasSize, settings.strokes, settings.backgroundColor, settings.backgroundImageUrl, settings.backgroundFit, bgImage]);
 
   useEffect(() => { renderAllStrokes(); }, [renderAllStrokes]);
+
+  // Load background image from data URL
+  useEffect(() => {
+    if (!settings.backgroundImageUrl) { setBgImage(null); return; }
+    const img = new Image();
+    img.onload = () => setBgImage(img);
+    img.onerror = () => setBgImage(null);
+    img.src = settings.backgroundImageUrl;
+  }, [settings.backgroundImageUrl]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -680,9 +713,9 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
     offscreen.height = exportH;
     const ctx = offscreen.getContext("2d");
     if (!ctx) return "";
-    renderStrokesToCanvas(ctx, settings.strokes, settings.backgroundColor, exportW, exportH);
+    renderStrokesToCanvas(ctx, settings.strokes, settings.backgroundColor, exportW, exportH, bgImage, settings.backgroundFit, settings.backgroundImageUrl);
     return offscreen.toDataURL("image/png");
-  }, [settings.strokes, settings.backgroundColor, settings.ratio]);
+  }, [settings.strokes, settings.backgroundColor, settings.ratio, settings.backgroundImageUrl, settings.backgroundFit, bgImage]);
 
   const handleGenerate = useCallback(async () => {
     if (!settings.canvasPrompt.trim() && settings.strokes.length === 0) {
@@ -930,6 +963,47 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
               </div>
             )}
           </div>
+
+          {/* Background image upload */}
+          <button type="button"
+            onClick={() => bgImageInputRef.current?.click()}
+            className="text-[10px] px-1.5 py-0.5 rounded nodrag"
+            title="上传背景图"
+            style={{ background: inputStyle.background, color: settings.backgroundImageUrl ? "#22c55e" : mutedColor, border: `1px solid ${inputStyle.borderColor}` }}>
+            背景图
+          </button>
+          {settings.backgroundImageUrl && (
+            <>
+              <button type="button"
+                onClick={() => updateSettings({ backgroundImageUrl: "" })}
+                className="text-[10px] px-1 py-0.5 rounded nodrag"
+                title="清除背景图"
+                style={{ background: inputStyle.background, color: "#ef4444", border: `1px solid ${inputStyle.borderColor}` }}>
+                X
+              </button>
+              <select value={settings.backgroundFit}
+                onChange={(e) => updateSettings({ backgroundFit: e.target.value as "contain" | "cover" | "stretch" })}
+                title="背景图适配模式"
+                aria-label="背景图适配模式"
+                className="text-[9px] px-1 py-0.5 rounded border nodrag"
+                style={inputStyle}>
+                <option value="contain">适应</option>
+                <option value="cover">填充</option>
+                <option value="stretch">拉伸</option>
+              </select>
+            </>
+          )}
+          <input ref={bgImageInputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                updateSettings({ backgroundImageUrl: ev.target?.result as string });
+              };
+              reader.readAsDataURL(file);
+              e.target.value = "";
+            }} />
 
           <div className="w-px h-3.5" style={{ background: inputStyle.borderColor }} />
 

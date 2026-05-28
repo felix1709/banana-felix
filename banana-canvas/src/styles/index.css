@@ -102,34 +102,6 @@ html, body, #root {
   fill: rgba(255, 255, 255, 0.7);
 }
 
-/* Controls */
-.theme-dark .react-flow__controls {
-  background-color: #18181b;
-  border: 1px solid #3f3f46;
-  border-radius: 6px;
-}
-.theme-light .react-flow__controls {
-  background-color: #ffffff;
-  border: 1px solid #a1a1aa;
-  border-radius: 6px;
-}
-.theme-dark .react-flow__controls-button {
-  background-color: #18181b;
-  border-bottom: 1px solid #3f3f46;
-  fill: #a1a1aa;
-}
-.theme-dark .react-flow__controls-button:hover {
-  background-color: #27272a;
-}
-.theme-light .react-flow__controls-button {
-  background-color: #ffffff;
-  border-bottom: 1px solid #d4d4d8;
-  fill: #52525b;
-}
-.theme-light .react-flow__controls-button:hover {
-  background-color: #f4f4f5;
-}
-
 /* Background dots */
 .theme-dark .react-flow__background {
   background-color: #09090b;
@@ -198,4 +170,65 @@ html, body, #root {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+/* === 蕉蕉Agent 动画 === */
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(249, 115, 22, 0.4), 0 2px 8px rgba(0,0,0,0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.7), 0 0 40px rgba(249, 115, 22, 0.3), 0 2px 8px rgba(0,0,0,0.3);
+  }
+}
+
+.jiaojiao-bubble {
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+.jiaojiao-panel {
+  animation: panel-slide-in 0.3s ease forwards;
+}
+
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ReactFlow selection box */
+.react-flow__selection {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border: 1px dashed rgba(59, 130, 246, 0.6) !important;
+  border-radius: 2px;
+}
+
+/* === 深色主题下拉菜单 === */
+.theme-dark select option {
+  background: #18181b;
+  color: #e4e4e7;
+}
+
+.theme-dark select {
+  color-scheme: dark;
+}
+
+.theme-light select option {
+  background: #ffffff;
+  color: #18181b;
+}
+
+.theme-light select {
+  color-scheme: light;
 }

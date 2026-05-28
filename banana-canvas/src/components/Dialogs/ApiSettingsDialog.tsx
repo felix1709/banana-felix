@@ -7,119 +7,135 @@ interface ApiSettingsDialogProps {
   onClose: () => void;
 }
 
+function ApiSection({ title, color, urlValue, urlSetter, urlPlaceholder, keyValue, keySetter, hint }: {
+  title: string;
+  color: string;
+  urlValue: string;
+  urlSetter: (v: string) => void;
+  urlPlaceholder: string;
+  keyValue: string;
+  keySetter: (v: string) => void;
+  hint?: string;
+}) {
+  const theme = useUIStore((s) => s.theme);
+  const isDark = theme === "dark";
+  const inputStyle = { background: isDark ? "#27272a" : "#ffffff", borderColor: isDark ? "#3f3f46" : "#d4d4d8", color: isDark ? "#e4e4e7" : "#18181b" };
+  const labelStyle = { color: isDark ? "#a1a1aa" : "#71717a" };
+
+  return (
+    <div style={{ padding: "8px 10px", borderRadius: 8, background: isDark ? "#27272a" : "#f4f4f5", marginBottom: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color, marginBottom: 6 }}>{title}</div>
+      <div className="mb-2">
+        <label className="block text-[11px] mb-1" style={labelStyle}>Base URL</label>
+        <input type="text" value={urlValue} onChange={(e) => urlSetter(e.target.value)} placeholder={urlPlaceholder}
+          className="w-full text-xs px-3 py-2 rounded-lg border outline-none" style={inputStyle} />
+        {hint && <div className="text-[9px] mt-0.5" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>{hint}</div>}
+      </div>
+      <div>
+        <label className="block text-[11px] mb-1" style={labelStyle}>API Key</label>
+        <input type="password" value={keyValue} onChange={(e) => keySetter(e.target.value)} placeholder="留空则使用通用 API Key"
+          className="w-full text-xs px-3 py-2 rounded-lg border outline-none" style={inputStyle} />
+      </div>
+    </div>
+  );
+}
+
 export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
 
-  const baseUrl = useWorkspaceStore((s) => s.baseUrl);
-  const apiKey = useWorkspaceStore((s) => s.apiKey);
   const setBaseUrl = useWorkspaceStore((s) => s.setBaseUrl);
   const setApiKey = useWorkspaceStore((s) => s.setApiKey);
+  const setChatBaseUrl = useWorkspaceStore((s) => s.setChatBaseUrl);
+  const setChatApiKey = useWorkspaceStore((s) => s.setChatApiKey);
+  const setVideoBaseUrl = useWorkspaceStore((s) => s.setVideoBaseUrl);
+  const setVideoApiKey = useWorkspaceStore((s) => s.setVideoApiKey);
   const setRemoteModels = useWorkspaceStore((s) => s.setRemoteModels);
   const remoteModels = useWorkspaceStore((s) => s.remoteModels);
 
-  const [localUrl, setLocalUrl] = useState(baseUrl);
-  const [localKey, setLocalKey] = useState(apiKey);
+  const [localUrl, setLocalUrl] = useState(useWorkspaceStore.getState().baseUrl);
+  const [localKey, setLocalKey] = useState(useWorkspaceStore.getState().apiKey);
+  const [localChatUrl, setLocalChatUrl] = useState(useWorkspaceStore.getState().chatBaseUrl);
+  const [localChatKey, setLocalChatKey] = useState(useWorkspaceStore.getState().chatApiKey);
+  const [localVideoUrl, setLocalVideoUrl] = useState(useWorkspaceStore.getState().videoBaseUrl);
+  const [localVideoKey, setLocalVideoKey] = useState(useWorkspaceStore.getState().videoApiKey);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const applySettings = useCallback(() => {
+    setBaseUrl(localUrl.trim());
+    setApiKey(localKey.trim());
+    setChatBaseUrl(localChatUrl.trim());
+    setChatApiKey(localChatKey.trim());
+    setVideoBaseUrl(localVideoUrl.trim());
+    setVideoApiKey(localVideoKey.trim());
+  }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey]);
 
   const handleTest = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
-    // Apply settings first
-    setBaseUrl(localUrl.trim());
-    setApiKey(localKey.trim());
+    applySettings();
 
     const result = await testConnection();
     if (result.ok) {
-      // Store remote models
       const models = result.models ?? [];
       setRemoteModels(models);
       const imageCount = models.filter((m) => m.type === "image").length;
       const videoCount = models.filter((m) => m.type === "video").length;
       const chatCount = models.filter((m) => m.type === "chat").length;
-      const unknownCount = models.filter((m) => m.type === "unknown").length;
-      setTestResult({
-        ok: true,
-        msg: `连接成功！获取 ${models.length} 个模型（图片:${imageCount} 视频:${videoCount} 聊天:${chatCount} 其他:${unknownCount}）`,
-      });
+      setTestResult({ ok: true, msg: `连接成功！获取 ${models.length} 个模型（图片:${imageCount} 视频:${videoCount} 聊天:${chatCount}）` });
     } else {
       setTestResult({ ok: false, msg: result.error ?? "连接失败" });
     }
     setTesting(false);
-  }, [localUrl, localKey, setBaseUrl, setApiKey, setRemoteModels]);
+  }, [applySettings, setRemoteModels]);
 
-  const inputStyle = {
-    background: isDark ? "#27272a" : "#ffffff",
-    borderColor: isDark ? "#3f3f46" : "#d4d4d8",
-    color: isDark ? "#e4e4e7" : "#18181b",
-  };
+  const handleSave = useCallback(() => {
+    applySettings();
+    onClose();
+  }, [applySettings, onClose]);
+
   const labelStyle = { color: isDark ? "#a1a1aa" : "#71717a" };
 
   const imageModels = remoteModels.filter((m) => m.type === "image");
   const videoModels = remoteModels.filter((m) => m.type === "video");
+  const chatModels = remoteModels.filter((m) => m.type === "chat");
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.5)" }}
-      onClick={onClose}
-    >
-      <div
-        className="rounded-xl shadow-2xl border p-6 w-[560px] max-h-[80vh] overflow-y-auto"
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div className="rounded-xl shadow-2xl border p-6 w-[580px] max-h-[85vh] overflow-y-auto"
         style={{ background: isDark ? "#18181b" : "#ffffff", borderColor: isDark ? "#3f3f46" : "#d4d4d8" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+        onClick={(e) => e.stopPropagation()}>
+
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold" style={{ color: isDark ? "#f4f4f5" : "#18181b" }}>
-            API 设置
-          </h2>
-          <button type="button" onClick={onClose} className="text-lg leading-none" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
-            ✕
-          </button>
+          <h2 className="text-sm font-semibold" style={{ color: isDark ? "#f4f4f5" : "#18181b" }}>API 设置</h2>
+          <button type="button" onClick={onClose} className="text-lg leading-none" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>✕</button>
         </div>
 
-        {/* Base URL */}
-        <div className="mb-3">
-          <label className="block text-[11px] mb-1" style={labelStyle}>Base URL</label>
-          <input
-            type="text"
-            value={localUrl}
-            onChange={(e) => setLocalUrl(e.target.value)}
-            placeholder="https://api.openai.com"
-            className="w-full text-xs px-3 py-2 rounded-lg border outline-none"
-            style={inputStyle}
-          />
-          <div className="text-[9px] mt-0.5" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>
-            OpenAI 兼容 API 地址，如 https://ai.leihuo.netease.com
-          </div>
-        </div>
+        {/* 通用 API */}
+        <ApiSection title="通用 API（图片生成）" color={isDark ? "#a78bfa" : "#7c3aed"}
+          urlValue={localUrl} urlSetter={setLocalUrl} urlPlaceholder="https://api.openai.com"
+          keyValue={localKey} keySetter={setLocalKey}
+          hint="OpenAI 兼容 API 地址，用于图片生成" />
 
-        {/* API Key */}
-        <div className="mb-3">
-          <label className="block text-[11px] mb-1" style={labelStyle}>API Key</label>
-          <input
-            type="password"
-            value={localKey}
-            onChange={(e) => setLocalKey(e.target.value)}
-            placeholder="sk-..."
-            className="w-full text-xs px-3 py-2 rounded-lg border outline-none"
-            style={inputStyle}
-          />
-          <div className="text-[9px] mt-0.5" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>
-            密钥仅保存在本地，不会上传到任何服务器
-          </div>
-        </div>
+        {/* 对话 API */}
+        <ApiSection title="对话 API（蕉蕉 / Agent）" color={isDark ? "#60a5fa" : "#2563eb"}
+          urlValue={localChatUrl} urlSetter={setLocalChatUrl} urlPlaceholder="留空则使用通用 API 地址"
+          keyValue={localChatKey} keySetter={setLocalChatKey}
+          hint="对话模型专用 API 地址，如 Claude、DeepSeek 等。留空则复用通用 API" />
+
+        {/* 视频 API */}
+        <ApiSection title="视频 API（视频生成）" color={isDark ? "#34d399" : "#059669"}
+          urlValue={localVideoUrl} urlSetter={setLocalVideoUrl} urlPlaceholder="留空则使用通用 API 地址"
+          keyValue={localVideoKey} keySetter={setLocalVideoKey}
+          hint="视频生成专用 API 地址，如 Seedance、可灵等。留空则复用通用 API" />
 
         {/* Test result */}
         {testResult && (
-          <div
-            className="text-[11px] px-3 py-2 rounded-lg mb-3"
-            style={{
-              background: testResult.ok ? (isDark ? "#052e16" : "#f0fdf4") : (isDark ? "#450a0a" : "#fef2f2"),
-              color: testResult.ok ? "#22c55e" : "#ef4444",
-            }}
-          >
+          <div className="text-[11px] px-3 py-2 rounded-lg mb-3" style={{
+            background: testResult.ok ? (isDark ? "#052e16" : "#f0fdf4") : (isDark ? "#450a0a" : "#fef2f2"),
+            color: testResult.ok ? "#22c55e" : "#ef4444",
+          }}>
             {testResult.msg}
           </div>
         )}
@@ -128,16 +144,26 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
         {remoteModels.length > 0 && (
           <div className="mb-3">
             <div className="text-[11px] mb-1" style={labelStyle}>已获取的模型</div>
+            {chatModels.length > 0 && (
+              <div className="mb-1">
+                <span className="text-[10px] font-medium" style={{ color: isDark ? "#60a5fa" : "#2563eb" }}>
+                  对话 ({chatModels.length}):
+                </span>
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {chatModels.map((m) => (
+                    <span key={m.id} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#e4e4e7" : "#3f3f46" }}>{m.id}</span>
+                  ))}
+                </div>
+              </div>
+            )}
             {imageModels.length > 0 && (
               <div className="mb-1">
                 <span className="text-[10px] font-medium" style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>
-                  图片模型 ({imageModels.length}):
+                  图片 ({imageModels.length}):
                 </span>
                 <div className="flex flex-wrap gap-1 mt-0.5">
                   {imageModels.map((m) => (
-                    <span key={m.id} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#e4e4e7" : "#3f3f46" }}>
-                      {m.id}
-                    </span>
+                    <span key={m.id} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#e4e4e7" : "#3f3f46" }}>{m.id}</span>
                   ))}
                 </div>
               </div>
@@ -145,13 +171,11 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
             {videoModels.length > 0 && (
               <div className="mb-1">
                 <span className="text-[10px] font-medium" style={{ color: isDark ? "#34d399" : "#059669" }}>
-                  视频模型 ({videoModels.length}):
+                  视频 ({videoModels.length}):
                 </span>
                 <div className="flex flex-wrap gap-1 mt-0.5">
                   {videoModels.map((m) => (
-                    <span key={m.id} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#e4e4e7" : "#3f3f46" }}>
-                      {m.id}
-                    </span>
+                    <span key={m.id} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#e4e4e7" : "#3f3f46" }}>{m.id}</span>
                   ))}
                 </div>
               </div>
@@ -161,27 +185,20 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
 
         {/* Buttons */}
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testing || !localUrl.trim()}
+          <button type="button" onClick={handleTest} disabled={testing || !localUrl.trim()}
             className="flex-1 text-xs px-3 py-2 rounded-lg border font-medium"
-            style={{
-              borderColor: isDark ? "#3f3f46" : "#d4d4d8",
-              background: isDark ? "#27272a" : "#f4f4f5",
-              color: testing || !localUrl.trim() ? (isDark ? "#52525b" : "#a1a1aa") : (isDark ? "#e4e4e7" : "#18181b"),
-            }}
-          >
+            style={{ borderColor: isDark ? "#3f3f46" : "#d4d4d8", background: isDark ? "#27272a" : "#f4f4f5",
+              color: testing || !localUrl.trim() ? (isDark ? "#52525b" : "#a1a1aa") : (isDark ? "#e4e4e7" : "#18181b") }}>
             {testing ? "连接中..." : "测试连接并获取模型"}
           </button>
-          <button
-            type="button"
-            onClick={() => { setBaseUrl(localUrl.trim()); setApiKey(localKey.trim()); onClose(); }}
+          <button type="button" onClick={handleSave}
             className="flex-1 text-xs px-3 py-2 rounded-lg font-medium"
-            style={{ background: "#3b82f6", color: "#fff" }}
-          >
+            style={{ background: "#3b82f6", color: "#fff" }}>
             保存并关闭
           </button>
+        </div>
+        <div className="text-[9px] mt-3" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>
+          密钥仅保存在本地，不会上传到任何服务器
         </div>
       </div>
     </div>

@@ -2,7 +2,6 @@ import { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import {
   ReactFlow,
   Background,
-  Controls,
   MiniMap,
   ConnectionMode,
   ReactFlowProvider,
@@ -46,6 +45,9 @@ function pushSnapshot() {
 }
 
 import { toXyNode, toXyEdge } from "./utils/nodeConvert";
+import { JiaojiaoBubble } from "./components/Agent/JiaojiaoBubble";
+import { JiaojiaoPanel } from "./components/Agent/JiaojiaoPanel";
+import { useAgentStore } from "./stores/agentStore";
 
 function CanvasApp() {
   const theme = useUIStore((s) => s.theme);
@@ -155,11 +157,87 @@ function CanvasApp() {
     dragSnapshotTaken.current = false;
   }, []);
 
+  const onSelectionChange = useCallback(
+    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
+      const ids = new Set(selectedNodes.map((n) => n.id));
+      useGraphStore.getState().selectNodes(ids);
+    },
+    [],
+  );
+
+  // ── Canvas drag & drop (Feature 1) ──
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    if (!isImage && !isVideo) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      useUIStore.getState().addToast("warning", `文件较大（${(file.size / 1024 / 1024).toFixed(1)}MB），加载可能较慢`);
+    }
+
+    const nodeType: NodeType = isImage ? "input-image" : "video-input";
+    const dims = NODE_DEFAULT_SIZES[nodeType] ?? { w: 260, h: 260 };
+    const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      pushSnapshot();
+      const id = uuid();
+      const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === nodeType).length;
+      const defaultName = isImage ? `图片${existingCount + 1}` : `视频${existingCount + 1}`;
+      const maxOrder = useGraphStore.getState().nodes
+        .filter((n) => n.type === nodeType)
+        .reduce((max, n) => {
+          const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
+          return ord > max ? ord : max;
+        }, 0);
+
+      const nodeSettings = getDefaultSettings(nodeType);
+      if (isImage) {
+        (nodeSettings as Record<string, unknown>).imageUrl = dataUrl;
+        (nodeSettings as Record<string, unknown>).fileName = file.name;
+        (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+      } else {
+        (nodeSettings as Record<string, unknown>).videoUrl = dataUrl;
+        (nodeSettings as Record<string, unknown>).fileName = file.name;
+        (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+      }
+
+      const node: CanvasNode = {
+        id,
+        type: nodeType,
+        x: flowPos.x - dims.w / 2,
+        y: flowPos.y - dims.h / 2,
+        width: dims.w,
+        height: dims.h,
+        content: dataUrl,
+        prompt: "",
+        settings: nodeSettings,
+        nodeName: defaultName,
+      };
+      useGraphStore.getState().addNode(node);
+      setNodes((nds) => [...nds, toXyNode(node)]);
+    };
+    reader.readAsDataURL(file);
+  }, [screenToFlowPosition, setNodes]);
+
   const onPaneClick = useCallback(() => {
     useGraphStore.getState().clearSelection();
     setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
     useUIStore.getState().hideContextMenu();
     setCreationMenu(null);
+    useAgentStore.getState().closePanel();
   }, [setNodes]);
 
   const onPaneContextMenu = useCallback(
@@ -590,6 +668,9 @@ function CanvasApp() {
           onPaneContextMenu={onPaneContextMenu}
           onNodeContextMenu={onNodeContextMenu}
           onEdgeContextMenu={onEdgeContextMenu}
+          onSelectionChange={onSelectionChange}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Strict}
@@ -598,6 +679,8 @@ function CanvasApp() {
           maxZoom={3}
           deleteKeyCode={null}
           zoomOnDoubleClick={false}
+          selectionOnDrag
+          selectionKeyCode="Shift"
           proOptions={{ hideAttribution: true }}
         >
           {!performanceMode && (
@@ -619,7 +702,6 @@ function CanvasApp() {
               theme === "dark" ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.7)"
             }
           />
-          <Controls showInteractive={false} />
           <DoodleOverlay />
         </ReactFlow>
       </div>
@@ -651,6 +733,9 @@ function CanvasApp() {
       {showApiSettings && <ApiSettingsDialog onClose={() => setShowApiSettings(false)} />}
 
       <ToastContainer />
+
+      <JiaojiaoBubble />
+      <JiaojiaoPanel />
     </div>
   );
 }
