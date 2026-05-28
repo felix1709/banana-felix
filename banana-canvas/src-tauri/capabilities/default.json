@@ -34,6 +34,8 @@
     "http:allow-fetch",
     "http:allow-fetch-cancel",
     "http:allow-fetch-read-body",
-    "http:allow-fetch-send"
+    "http:allow-fetch-send",
+    "updater:default",
+    "process:default"
   ]
 }
