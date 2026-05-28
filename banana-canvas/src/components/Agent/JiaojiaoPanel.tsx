@@ -394,11 +394,33 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         <span style={{ fontSize: 13, fontWeight: 600, color: "#facc15" }}>蕉蕉</span>
         <div style={{ flex: 1 }} />
         <button type="button" onClick={() => { createNewSession(); setShowHistory(false); }}
-          style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer", fontSize: 14, lineHeight: 1 }}
-          title="新建对话">+</button>
+          className="jiaojiao-header-btn jiaojiao-new-chat-btn"
+          title="新建对话"
+          style={{
+            background: "#16a34a", border: "none", color: "#ffffff",
+            cursor: "pointer", fontSize: 12, fontWeight: 700, lineHeight: 1,
+            padding: "5px 12px", borderRadius: 6,
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#15803d"; e.currentTarget.style.transform = "scale(1.05)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "#16a34a"; e.currentTarget.style.transform = "scale(1)"; }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1.05)"; }}
+        >+ 新对话</button>
         <button type="button" onClick={() => setShowHistory(!showHistory)}
-          style={{ background: "none", border: "none", color: showHistory ? "#f97316" : "#71717a", cursor: "pointer", fontSize: 13, lineHeight: 1 }}
-          title="历史记录">&#128339;</button>
+          className="jiaojiao-header-btn jiaojiao-history-btn"
+          title="历史记录"
+          style={{
+            background: showHistory ? "#1d4ed8" : "#2563eb", border: "none", color: "#ffffff",
+            cursor: "pointer", fontSize: 12, fontWeight: 700, lineHeight: 1,
+            padding: "5px 12px", borderRadius: 6,
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#1d4ed8"; e.currentTarget.style.transform = "scale(1.05)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = showHistory ? "#1d4ed8" : "#2563eb"; e.currentTarget.style.transform = "scale(1)"; }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1.05)"; }}
+        >&#128339; 历史</button>
         <select
           value={currentModel}
           onChange={(e) => setSelectedModel(e.target.value)}

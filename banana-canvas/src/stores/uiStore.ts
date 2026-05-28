@@ -5,6 +5,38 @@ import { v4 as uuid } from "uuid";
 type Theme = "dark" | "light";
 type ActiveTool = "select" | "brush" | "eraser";
 
+export type MouseButton = "left" | "middle" | "right";
+export type ZoomDirection = "normal" | "reverse";
+
+export interface KeybindingConfig {
+  selectButton: MouseButton;
+  panButton: MouseButton;
+  zoomDirection: ZoomDirection;
+}
+
+const DEFAULT_KEYBINDING: KeybindingConfig = {
+  selectButton: "left",
+  panButton: "middle",
+  zoomDirection: "normal",
+};
+
+function loadKeybinding(): KeybindingConfig {
+  try {
+    const saved = localStorage.getItem("banana-canvas-keybinding");
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<KeybindingConfig>;
+      return { ...DEFAULT_KEYBINDING, ...parsed };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_KEYBINDING };
+}
+
+const MOUSE_BUTTON_MAP: Record<MouseButton, number> = {
+  left: 0,
+  middle: 1,
+  right: 2,
+};
+
 export interface Toast {
   id: string;
   type: "success" | "error" | "warning" | "info";
@@ -25,6 +57,7 @@ interface UIState {
   canvasBgColorLight: string;
   toasts: Toast[];
   connectingTarget: string | null;
+  keybinding: KeybindingConfig;
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
@@ -41,6 +74,7 @@ interface UIState {
   addToast: (type: Toast["type"], msg: string) => void;
   removeToast: (id: string) => void;
   setConnectingTarget: (id: string | null) => void;
+  setKeybinding: (config: Partial<KeybindingConfig>) => void;
 }
 
 interface ContextMenuState {
@@ -121,6 +155,7 @@ export const useUIStore = create<UIState>()(
 
     toasts: [],
     connectingTarget: null,
+    keybinding: loadKeybinding(),
 
     addToast: (type, msg) => {
       const id = uuid();
@@ -148,5 +183,18 @@ export const useUIStore = create<UIState>()(
       set((state) => {
         state.connectingTarget = id;
       }),
+
+    setKeybinding: (config) =>
+      set((state) => {
+        Object.assign(state.keybinding, config);
+        try {
+          localStorage.setItem("banana-canvas-keybinding", JSON.stringify(state.keybinding));
+        } catch { /* ignore */ }
+      }),
   })),
 );
+
+export function getPanDragButtons(): number[] {
+  const kb = useUIStore.getState().keybinding;
+  return [MOUSE_BUTTON_MAP[kb.panButton]];
+}

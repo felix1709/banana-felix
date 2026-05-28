@@ -38,5 +38,13 @@
         "displayLanguageSelector": false
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/felix1709/banana-felix/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDRDk1QTBBRjA1MTBBNEMKUldSTUNsSHdDbHJaakpmNXJzR296VHpDb3dRcm1ieFJ4dFFqdE9KM2psbnVQb0pqekdxTGpHZHoK"
+    }
   }
 }

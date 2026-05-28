@@ -17,11 +17,13 @@ import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
 
 interface TopBarProps {
   onOpenApiSettings: () => void;
+  onOpenKeybindingSettings: () => void;
+  onCheckUpdate: () => void;
 }
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
-export function TopBar({ onOpenApiSettings }: TopBarProps) {
+export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpdate }: TopBarProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
   const toggleTheme = useUIStore((s) => s.toggleTheme);
@@ -229,6 +231,8 @@ export function TopBar({ onOpenApiSettings }: TopBarProps) {
         {isDark ? "☀ 亮色" : "🌙 暗色"}
       </button>
       <button type="button" onClick={onOpenApiSettings} style={btnBase} title="API 设置">API 设置</button>
+      <button type="button" onClick={onOpenKeybindingSettings} style={btnBase} title="按键设置">⌨ 按键设置</button>
+      <button type="button" onClick={onCheckUpdate} style={btnBase} title="检查更新">🔄 更新</button>
 
       {/* Zoom */}
       <div className="flex items-center gap-0.5" style={{ borderLeft: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`, paddingLeft: 4, marginLeft: 4 }}>

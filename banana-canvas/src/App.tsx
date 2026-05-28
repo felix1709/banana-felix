@@ -25,6 +25,8 @@ import { CanvasEdge } from "./components/Canvas/CanvasEdge";
 import { NodeCreationMenu } from "./components/Canvas/NodeCreationMenu";
 import { CanvasContextMenu } from "./components/Canvas/CanvasContextMenu";
 import { ApiSettingsDialog } from "./components/Dialogs/ApiSettingsDialog";
+import { KeybindingSettingsDialog } from "./components/Dialogs/KeybindingSettingsDialog";
+import { UpdateChecker } from "./components/Dialogs/UpdateChecker";
 import { TopBar } from "./components/Toolbar/TopBar";
 import { LeftToolbar } from "./components/Toolbar/LeftToolbar";
 import { ToastContainer } from "./components/Toast/ToastContainer";
@@ -57,7 +59,7 @@ function CanvasApp() {
   const setActiveTool = useUIStore((s) => s.setActiveTool);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
 
-  const { screenToFlowPosition, getNodes, setNodes, setEdges } = useReactFlow();
+  const { screenToFlowPosition, getNodes, setNodes, setEdges, zoomIn, zoomOut } = useReactFlow();
 
   const initialNodes = useMemo(
     () => useGraphStore.getState().nodes.map(toXyNode),
@@ -77,6 +79,25 @@ function CanvasApp() {
 
   const dragSnapshotTaken = useRef(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
+  const [showKeybindingSettings, setShowKeybindingSettings] = useState(false);
+  const [showUpdateChecker, setShowUpdateChecker] = useState(false);
+
+  const keybinding = useUIStore((s) => s.keybinding);
+
+  const panOnDrag = useMemo(() => {
+    const map: Record<string, number> = { left: 0, middle: 1, right: 2 };
+    return [map[keybinding.panButton]];
+  }, [keybinding.panButton]);
+
+  const selectionKeyCode = useMemo(() => {
+    if (keybinding.selectButton === "left") return null;
+    return null;
+  }, [keybinding.selectButton]);
+
+  const handleReverseWheel = useCallback((event: React.WheelEvent) => {
+    const delta = event.deltaY;
+    if (delta > 0) { zoomIn(); } else if (delta < 0) { zoomOut(); }
+  }, [zoomIn, zoomOut]);
 
   // ── xyflow change handlers ──
 
@@ -167,69 +188,94 @@ function CanvasApp() {
 
   // ── Canvas drag & drop (Feature 1) ──
 
+  const [dragOverActive, setDragOverActive] = useState(false);
+
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
+    const hasFile = Array.from(event.dataTransfer.types).includes("Files");
+    if (hasFile) {
+      event.dataTransfer.dropEffect = "copy";
+      setDragOverActive(true);
+    }
+  }, []);
+
+  const onDragLeave = useCallback((event: React.DragEvent) => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (event.clientX <= rect.left || event.clientX >= rect.right ||
+        event.clientY <= rect.top || event.clientY >= rect.bottom) {
+      setDragOverActive(false);
+    }
   }, []);
 
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (!file) return;
+    setDragOverActive(false);
+    const files = Array.from(event.dataTransfer.files);
+    const mediaFiles = files.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+    if (mediaFiles.length === 0) return;
 
-    const isImage = file.type.startsWith("image/");
-    const isVideo = file.type.startsWith("video/");
-    if (!isImage && !isVideo) return;
-
-    if (file.size > 50 * 1024 * 1024) {
-      useUIStore.getState().addToast("warning", `文件较大（${(file.size / 1024 / 1024).toFixed(1)}MB），加载可能较慢`);
-    }
-
-    const nodeType: NodeType = isImage ? "input-image" : "video-input";
-    const dims = NODE_DEFAULT_SIZES[nodeType] ?? { w: 260, h: 260 };
     const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    pushSnapshot();
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      pushSnapshot();
-      const id = uuid();
-      const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === nodeType).length;
-      const defaultName = isImage ? `图片${existingCount + 1}` : `视频${existingCount + 1}`;
-      const maxOrder = useGraphStore.getState().nodes
-        .filter((n) => n.type === nodeType)
-        .reduce((max, n) => {
-          const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
-          return ord > max ? ord : max;
-        }, 0);
+    let offsetX = 0;
+    let offsetY = 0;
 
-      const nodeSettings = getDefaultSettings(nodeType);
-      if (isImage) {
-        (nodeSettings as Record<string, unknown>).imageUrl = dataUrl;
-        (nodeSettings as Record<string, unknown>).fileName = file.name;
-        (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
-      } else {
-        (nodeSettings as Record<string, unknown>).videoUrl = dataUrl;
-        (nodeSettings as Record<string, unknown>).fileName = file.name;
-        (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+    for (const file of mediaFiles) {
+      if (file.size > 50 * 1024 * 1024) {
+        useUIStore.getState().addToast("warning", `文件较大（${(file.size / 1024 / 1024).toFixed(1)}MB），加载可能较慢`);
       }
 
-      const node: CanvasNode = {
-        id,
-        type: nodeType,
-        x: flowPos.x - dims.w / 2,
-        y: flowPos.y - dims.h / 2,
-        width: dims.w,
-        height: dims.h,
-        content: dataUrl,
-        prompt: "",
-        settings: nodeSettings,
-        nodeName: defaultName,
+      const isImage = file.type.startsWith("image/");
+      const isVideo = file.type.startsWith("video/");
+      if (!isImage && !isVideo) continue;
+
+      const nodeType: NodeType = isImage ? "input-image" : "video-input";
+      const dims = NODE_DEFAULT_SIZES[nodeType] ?? { w: 260, h: 260 };
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const id = uuid();
+        const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === nodeType).length;
+        const defaultName = isImage ? `图片${existingCount + 1}` : `视频${existingCount + 1}`;
+        const maxOrder = useGraphStore.getState().nodes
+          .filter((n) => n.type === nodeType)
+          .reduce((max, n) => {
+            const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
+            return ord > max ? ord : max;
+          }, 0);
+
+        const nodeSettings = getDefaultSettings(nodeType);
+        if (isImage) {
+          (nodeSettings as Record<string, unknown>).imageUrl = dataUrl;
+          (nodeSettings as Record<string, unknown>).fileName = file.name;
+          (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+        } else {
+          (nodeSettings as Record<string, unknown>).videoUrl = dataUrl;
+          (nodeSettings as Record<string, unknown>).fileName = file.name;
+          (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+        }
+
+        const node: CanvasNode = {
+          id,
+          type: nodeType,
+          x: flowPos.x - dims.w / 2 + offsetX,
+          y: flowPos.y - dims.h / 2 + offsetY,
+          width: dims.w,
+          height: dims.h,
+          content: dataUrl,
+          prompt: "",
+          settings: nodeSettings,
+          nodeName: defaultName,
+        };
+        useGraphStore.getState().addNode(node);
+        setNodes((nds) => [...nds, toXyNode(node)]);
       };
-      useGraphStore.getState().addNode(node);
-      setNodes((nds) => [...nds, toXyNode(node)]);
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+
+      offsetX += 30;
+      offsetY += 30;
+    }
   }, [screenToFlowPosition, setNodes]);
 
   const onPaneClick = useCallback(() => {
@@ -635,7 +681,7 @@ function CanvasApp() {
 
   return (
     <div className={`theme-${theme} canvas-root`}>
-      <TopBar onOpenApiSettings={() => setShowApiSettings(true)} />
+      <TopBar onOpenApiSettings={() => setShowApiSettings(true)} onOpenKeybindingSettings={() => setShowKeybindingSettings(true)} onCheckUpdate={() => setShowUpdateChecker(true)} />
 
       <div style={{ paddingTop: 36, paddingLeft: leftToolbarOpen ? 36 : 0, height: "100%" }}>
         <ReactFlow
@@ -671,6 +717,7 @@ function CanvasApp() {
           onSelectionChange={onSelectionChange}
           onDragOver={onDragOver}
           onDrop={onDrop}
+          onDragLeave={onDragLeave}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Strict}
@@ -679,8 +726,12 @@ function CanvasApp() {
           maxZoom={3}
           deleteKeyCode={null}
           zoomOnDoubleClick={false}
-          selectionOnDrag
-          selectionKeyCode="Shift"
+          selectionOnDrag={keybinding.selectButton === "left"}
+          selectionKeyCode={selectionKeyCode}
+          panOnDrag={panOnDrag}
+          panOnScroll={false}
+          zoomOnScroll={keybinding.zoomDirection !== "reverse"}
+          onWheel={keybinding.zoomDirection === "reverse" ? handleReverseWheel : undefined}
           proOptions={{ hideAttribution: true }}
         >
           {!performanceMode && (
@@ -703,6 +754,26 @@ function CanvasApp() {
             }
           />
           <DoodleOverlay />
+          {dragOverActive && (
+            <div
+              style={{
+                position: "absolute", inset: 0, zIndex: 5,
+                background: "rgba(59,130,246,0.08)",
+                border: "2px dashed rgba(59,130,246,0.5)",
+                borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <div style={{
+                background: "rgba(9,9,11,0.85)", borderRadius: 12, padding: "16px 28px",
+                color: "#60a5fa", fontSize: 14, fontWeight: 600,
+                boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+              }}>
+                释放以导入素材
+              </div>
+            </div>
+          )}
         </ReactFlow>
       </div>
 
@@ -731,6 +802,8 @@ function CanvasApp() {
       )}
 
       {showApiSettings && <ApiSettingsDialog onClose={() => setShowApiSettings(false)} />}
+      {showKeybindingSettings && <KeybindingSettingsDialog onClose={() => setShowKeybindingSettings(false)} />}
+      {showUpdateChecker && <UpdateChecker />}
 
       <ToastContainer />
 
