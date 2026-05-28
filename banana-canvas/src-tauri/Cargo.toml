@@ -1,6 +1,6 @@
 [package]
 name = "banana-canvas"
-version = "0.2.0"
+version = "0.2.1"
 description = "香蕉画布 - AI 影视创作工具"
 authors = ["felix1709"]
 edition = "2021"
