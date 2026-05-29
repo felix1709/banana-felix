@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { ChatMessage } from "../../types/agent";
 
 interface ChatBubbleProps {
@@ -7,9 +7,28 @@ interface ChatBubbleProps {
   streamingText?: string;
 }
 
+function cleanDisplayText(text: string): string {
+  let cleaned = text;
+  // Remove [STORYBOARD_COMPLETE]...[/STORYBOARD_COMPLETE] blocks entirely
+  cleaned = cleaned.replace(/\[STORYBOARD_COMPLETE\][\s\S]*?\[\/STORYBOARD_COMPLETE\]/g, "");
+  // Remove [OPTIONS]...[/OPTIONS] blocks (already parsed separately)
+  cleaned = cleaned.replace(/\[OPTIONS\][\s\S]*?\[\/OPTIONS\]/g, "");
+  // Remove markdown code blocks
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, "");
+  // Remove stray JSON-like fragments (lines starting with { or })
+  cleaned = cleaned.split("\n").filter((line) => {
+    const trimmed = line.trim();
+    return !trimmed.startsWith("{") && !trimmed.startsWith("}") && !trimmed.startsWith('"') && trimmed !== "";
+  }).join("\n");
+  // Collapse multiple blank lines into one
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  return cleaned.trim();
+}
+
 export const ChatBubble = memo(function ChatBubble({ message, streaming, streamingText }: ChatBubbleProps) {
   const isUser = message.role === "user";
-  const content = streaming ? (streamingText ?? message.content) : message.content;
+  const rawContent = streaming ? (streamingText ?? message.content) : message.content;
+  const content = useMemo(() => isUser ? rawContent : cleanDisplayText(rawContent), [isUser, rawContent]);
 
   return (
     <div

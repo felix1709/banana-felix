@@ -111,23 +111,6 @@ export interface MotionControlSettings {
 
 // ── 工具辅助组 ──
 
-export interface StoryboardSettings {
-  columns: number;
-  shotCount: number;
-  aspectRatio: string;
-}
-
-export interface StoryboardChartSettings {
-  timelineScale: number;
-  showLabels: boolean;
-  groupBy: "scene" | "shot" | "time";
-}
-
-export interface TableEditorSettings {
-  rows: number;
-  columns: number;
-  headers: string;
-}
 
 import type { DoodleStroke } from "./node";
 
@@ -292,9 +275,6 @@ export type AnyNodeSettings =
   | CameraMovementSettings
   | ProfessionalCameraSettings
   | MotionControlSettings
-  | StoryboardSettings
-  | StoryboardChartSettings
-  | TableEditorSettings
   | CanvasNodeSettings
   | DoodleCanvasSettings
   | GenMusicSettings

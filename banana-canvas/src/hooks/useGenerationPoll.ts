@@ -3,6 +3,10 @@ import { useReactFlow } from "@xyflow/react";
 import { useJobStore } from "../stores/jobStore";
 import { useGraphStore } from "../stores/graphStore";
 import { pollTask } from "../services/apiService";
+import { v4 as uuid } from "uuid";
+import { NODE_DEFAULT_SIZES, getDefaultSettings } from "../types/node";
+import type { CanvasNode, CanvasEdge } from "../types/node";
+import { toXyNode, toXyEdge } from "../utils/nodeConvert";
 
 const POLL_INTERVAL = 2000;     // 2 seconds
 const TIMEOUT_MS = 300000;      // 5 minutes
@@ -17,7 +21,7 @@ export function useGenerationPoll(nodeId: string) {
   const updateJob = useJobStore((s) => s.updateJob);
   const appendJobLog = useJobStore((s) => s.appendJobLog);
   const updateNode = useGraphStore((s) => s.updateNode);
-  const { setNodes: setXyNodes } = useReactFlow();
+  const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const errorCountsRef = useRef<Map<string, number>>(new Map());
 
@@ -94,6 +98,50 @@ export function useGenerationPoll(nodeId: string) {
             });
             updateNode(nodeId, { content: resultUrl });
             setXyNodes((nds) => nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, content: resultUrl } } : n));
+
+            // Auto-create input-image node for gen-image nodes
+            if (resultUrl && result.imageUrl) {
+              const gs = useGraphStore.getState();
+              const currentNode = gs.nodes.find((n) => n.id === nodeId);
+              const nodeType = currentNode?.type;
+              if (nodeType === "gen-image" && currentNode) {
+                const existingOutputEdge = gs.edges.find(
+                  (e) => e.from === nodeId && gs.nodes.some((n) => n.id === e.to && n.type === "input-image"),
+                );
+                if (existingOutputEdge) {
+                  gs.updateNode(existingOutputEdge.to, { content: resultUrl });
+                  setXyNodes((nds) => nds.map((n) => n.id === existingOutputEdge.to ? { ...n, data: { ...n.data, content: resultUrl } } : n));
+                } else {
+                  const imgDims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
+                  const newNodeId = uuid();
+                  const newNode: CanvasNode = {
+                    id: newNodeId,
+                    type: "input-image",
+                    x: currentNode.x + (currentNode.width || 320) + 30,
+                    y: currentNode.y,
+                    width: imgDims.w,
+                    height: imgDims.h,
+                    content: resultUrl,
+                    prompt: "",
+                    nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果` : "生成结果",
+                    settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl: resultUrl, fileName: "generated.png" },
+                  };
+                  gs.addNode(newNode);
+                  setXyNodes((nds) => [...nds, toXyNode(newNode)]);
+
+                  const edge: CanvasEdge = {
+                    id: uuid(),
+                    from: nodeId,
+                    to: newNodeId,
+                    fromPort: "default",
+                    toPort: "default",
+                    inputType: "default",
+                  };
+                  gs.addEdge(edge);
+                  setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+                }
+              }
+            }
           } else if (result.status === "failed") {
             appendJobLog(job.id, `生成失败: ${result.error || "未知错误"}`);
             updateJob(job.id, {

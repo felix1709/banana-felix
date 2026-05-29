@@ -12,9 +12,6 @@ import { GlobalPerspectiveNode } from "./GlobalPerspectiveNode";
 import { CameraMovementNode } from "./CameraMovementNode";
 import { ProfessionalCameraNode } from "./ProfessionalCameraNode";
 import { MotionControlNode } from "./MotionControlNode";
-import { StoryboardNode } from "./StoryboardNode";
-import { StoryboardChartNode } from "./StoryboardChartNode";
-import { TableEditorNode } from "./TableEditorNode";
 import { CanvasNodeComponent } from "./CanvasNodeComponent";
 import { DoodleCanvasNode } from "./DoodleCanvasNode";
 import { GenMusicNode } from "./GenMusicNode";
@@ -48,9 +45,6 @@ export const nodeTypes = {
   "camera-movement": CameraMovementNode,
   "professional-camera": ProfessionalCameraNode,
   "motion-control": MotionControlNode,
-  "storyboard-node": StoryboardNode,
-  "storyboard-chart-node": StoryboardChartNode,
-  "table-editor-node": TableEditorNode,
   "canvas-node": CanvasNodeComponent,
   "doodle-canvas": DoodleCanvasNode,
   "gen-music": GenMusicNode,

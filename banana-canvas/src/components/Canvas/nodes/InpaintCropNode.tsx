@@ -8,10 +8,12 @@ import { useUpstreamNodes } from "../../../hooks/useUpstreamNodes";
 import { useGraphStore } from "../../../stores/graphStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { NODE_DEFAULT_SIZES } from "../../../types/node";
 import type { CanvasNode, CanvasEdge } from "../../../types/node";
 import { inpaintImage, pollTask } from "../../../services/apiService";
 import type { InpaintCropSettings } from "../../../types/settings";
+import { IMAGE_MODELS } from "../../../types/model";
 
 // ── Helpers ──
 
@@ -127,9 +129,18 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
   const { settings, updateSettings } = useNodeSettings<InpaintCropSettings>(id);
+  const remoteModels = useWorkspaceStore((s) => s.remoteModels);
 
   const upstream = useUpstreamNodes(id);
   const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+
+  const imageModelOptions = (() => {
+    const dynamic = remoteModels.filter((m) => m.type === "image");
+    if (dynamic.length > 0) return dynamic.map((m) => ({ id: m.id, label: m.name }));
+    const maybeImage = remoteModels.filter((m) => m.type !== "video" && m.type !== "chat");
+    if (maybeImage.length > 0) return maybeImage.map((m) => ({ id: m.id, label: m.name }));
+    return IMAGE_MODELS.map((m) => ({ id: m.id, label: `${m.label} (${m.provider})` }));
+  })();
 
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -533,17 +544,20 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
         {/* Inpaint mode: drawing controls + prompt */}
         {settings.mode === "inpaint" && (
           <div className="flex flex-col gap-1.5">
-            {/* Model input */}
+            {/* Model selector */}
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] shrink-0" style={{ color: isDark ? "#a1a1aa" : "#71717a" }}>模型</span>
-              <input
-                type="text"
+              <select
                 value={settings.model}
                 onChange={(e) => updateSettings({ model: e.target.value })}
-                placeholder="模型名称"
-                className="flex-1 text-[11px] px-1.5 py-0.5 rounded border outline-none nodrag"
+                className="flex-1 text-[11px] px-1 py-0.5 rounded border outline-none nodrag"
                 style={inputStyle}
-              />
+                title="选择模型"
+              >
+                {imageModelOptions.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-1">
               {!isDrawingMode ? (

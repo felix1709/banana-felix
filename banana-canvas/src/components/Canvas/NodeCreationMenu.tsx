@@ -6,7 +6,6 @@ const NODE_CATEGORIES: Record<string, NodeType[]> = {
   "输入": ["input-image", "text-node", "video-input", "audio-input"],
   "生成": ["gen-image", "gen-video", "gen-music"],
   "编辑": ["inpaint-crop", "inpaint-stitch", "jimeng-super-resolution", "topaz-upscale"],
-  "分镜": ["storyboard-node", "storyboard-chart-node", "table-editor-node"],
   "画板": ["canvas-node", "doodle-canvas"],
   "影视": ["camera-movement", "professional-camera", "global-perspective"],
   "角色/场景": [

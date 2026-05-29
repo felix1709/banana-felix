@@ -53,18 +53,6 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
     [id, updateSettings, updateNode, syncContentToXy],
   );
 
-  const handleUrlInput = useCallback(
-    (e: React.FocusEvent<HTMLInputElement>) => {
-      const url = e.target.value.trim();
-      if (url && url !== imageUrl) {
-        updateSettings({ source: "url", imageUrl: url, fileName: url.split("/").pop() ?? "" });
-        updateNode(id, { content: url });
-        syncContentToXy(url);
-      }
-    },
-    [id, imageUrl, updateSettings, updateNode, syncContentToXy],
-  );
-
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
@@ -135,15 +123,89 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
     return () => window.removeEventListener("keydown", handler);
   }, [previewOpen]);
 
-  // ── Save image locally (always triggers file download) ──
-  const handleSaveLocally = useCallback(() => {
+  // ── Save image locally using Tauri native dialog + fs (reliable in desktop app) ──
+  const handleSaveLocally = useCallback(async () => {
     if (!imageUrl) return;
     setSaving(true);
 
     const safeName = (fileName && fileName !== "upload") ? fileName.replace(/\.[^.]+$/, "") : "image";
 
-    // Helper: trigger browser file download from a blob
-    const downloadBlob = (blob: Blob, ext: string) => {
+    const getExtFromMime = (mime: string): string => {
+      if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+      if (mime.includes("webp")) return "webp";
+      if (mime.includes("gif")) return "gif";
+      return "png";
+    };
+
+    // Convert image source to Uint8Array for file writing
+    const imageToBytes = async (): Promise<{ bytes: Uint8Array; ext: string }> => {
+      // Data URL: decode base64 directly — preserves original format
+      if (imageUrl.startsWith("data:")) {
+        const commaIdx = imageUrl.indexOf(",");
+        const meta = imageUrl.slice(0, commaIdx);
+        const base64 = imageUrl.slice(commaIdx + 1);
+        const mimeMatch = meta.match(/data:(image\/[\w+.-]+)/);
+        const mime = mimeMatch?.[1] ?? "image/png";
+        const ext = getExtFromMime(mime);
+        const raw = atob(base64);
+        const buf = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+        return { bytes: buf, ext };
+      }
+
+      // Remote URL: fetch the original file (no canvas re-encoding)
+      const isTauriApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+      let httpFetch: typeof globalThis.fetch;
+      if (isTauriApp) {
+        try {
+          const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+          httpFetch = tauriFetch as typeof globalThis.fetch;
+        } catch {
+          httpFetch = globalThis.fetch;
+        }
+      } else {
+        httpFetch = globalThis.fetch;
+      }
+
+      const response = await httpFetch(imageUrl);
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      const blob = await response.blob();
+      const ext = getExtFromMime(blob.type || "image/png");
+      const arrayBuf = await blob.arrayBuffer();
+      return { bytes: new Uint8Array(arrayBuf), ext };
+    };
+
+    try {
+      const { bytes, ext } = await imageToBytes();
+
+      // Primary: use Tauri save dialog + fs writeFile (most reliable in desktop app)
+      const isTauriApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+      if (isTauriApp) {
+        try {
+          const { save } = await import("@tauri-apps/plugin-dialog");
+          const { writeFile } = await import("@tauri-apps/plugin-fs");
+          const filePath = await save({
+            defaultPath: `${safeName}.${ext}`,
+            filters: [{ name: "Images", extensions: [ext] }],
+          });
+          if (filePath) {
+            await writeFile(filePath, bytes);
+            useUIStore.getState().addToast("success", "图片已保存");
+          }
+          setSaving(false);
+          return;
+        } catch (err) {
+          // User cancelled dialog or Tauri API error — fall through to web fallback
+          if (err instanceof Error && err.message?.includes("cancel")) {
+            setSaving(false);
+            return;
+          }
+          // Fall through to web download approach
+        }
+      }
+
+      // Fallback: web <a> download (browser or Tauri API unavailable)
+      const blob = new Blob([bytes], { type: `image/${ext === "jpg" ? "jpeg" : ext}` });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -153,64 +215,11 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       setSaving(false);
-    };
-
-    // Data URL: decode to blob directly
-    if (imageUrl.startsWith("data:")) {
-      try {
-        const commaIdx = imageUrl.indexOf(",");
-        const meta = imageUrl.slice(0, commaIdx);
-        const base64 = imageUrl.slice(commaIdx + 1);
-        const mimeMatch = meta.match(/data:(image\/\w+)/);
-        const mime = mimeMatch?.[1] ?? "image/png";
-        const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : mime.includes("webp") ? "webp" : "png";
-        const raw = atob(base64);
-        const buf = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
-        downloadBlob(new Blob([buf], { type: mime }), ext);
-      } catch {
-        // Fallback: direct href download
-        const a = document.createElement("a");
-        a.href = imageUrl;
-        a.download = `${safeName}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setSaving(false);
-      }
-      return;
-    }
-
-    // Remote URL: load into canvas → blob → download (avoids opening new tab)
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const c = document.createElement("canvas");
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        const ctx = c.getContext("2d");
-        if (!ctx) throw new Error("no ctx");
-        ctx.drawImage(img, 0, 0);
-        c.toBlob((blob) => {
-          if (blob) {
-            downloadBlob(blob, "png");
-          } else {
-            window.open(imageUrl, "_blank");
-            setSaving(false);
-          }
-        }, "image/png");
-      } catch {
-        // Canvas tainted by CORS — fallback to new tab
-        window.open(imageUrl, "_blank");
-        setSaving(false);
-      }
-    };
-    img.onerror = () => {
-      window.open(imageUrl, "_blank");
+    } catch {
+      // Last resort: open image URL in new tab
+      try { window.open(imageUrl, "_blank"); } catch { /* no-op */ }
       setSaving(false);
-    };
-    img.src = imageUrl;
+    }
   }, [imageUrl, fileName]);
 
   return (
@@ -263,22 +272,58 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
         </span>
       </div>
 
-      {/* Image area — ref for native dblclick */}
+      {/* Image area — click to upload, ref for native dblclick */}
       <div
         ref={imgContainerRef}
         className="relative w-full flex items-center justify-center rounded overflow-hidden nodrag"
-        style={{ minHeight: 120, maxHeight: 180, background: isDark ? "#0f0f0f" : "#fafafa", cursor: imageUrl ? "zoom-in" : "default" }}
+        style={{ minHeight: 120, maxHeight: 180, background: isDark ? "#0f0f0f" : "#fafafa", cursor: imageUrl ? "zoom-in" : "pointer" }}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
+        onClick={() => { if (!imageUrl) handleUploadClick(); }}
       >
         {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={fileName}
-            className="rounded"
-            style={{ maxWidth: "100%", maxHeight: 170, objectFit: "contain", pointerEvents: "none" }}
-            loading="lazy"
-          />
+          <>
+            <img
+              src={imageUrl}
+              alt={fileName}
+              className="rounded"
+              style={{ maxWidth: "100%", maxHeight: 170, objectFit: "contain", pointerEvents: "none" }}
+              loading="lazy"
+            />
+            {/* Save button — compact, green arrow icon */}
+            <button
+              type="button"
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); handleSaveLocally(); }}
+              disabled={saving}
+              title="保存原图到本地"
+              style={{
+                position: "absolute", top: 4, right: 4,
+                width: 14, height: 14, borderRadius: 3,
+                border: "none",
+                background: "rgba(0,0,0,0.35)",
+                color: "#22c55e",
+                fontSize: 0, lineHeight: 1,
+                cursor: saving ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 0,
+                transition: "all 0.15s",
+                filter: "drop-shadow(0 0 2px rgba(34,197,94,0.4))",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.6)"; e.currentTarget.style.transform = "scale(1.15)"; e.currentTarget.style.filter = "drop-shadow(0 0 4px rgba(34,197,94,0.7))"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.35)"; e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.filter = "drop-shadow(0 0 2px rgba(34,197,94,0.4))"; }}
+            >
+              {saving ? (
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                </svg>
+              ) : (
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v12M5 12l7 7 7-7" />
+                </svg>
+              )}
+            </button>
+          </>
         ) : (
           <div
             className="flex flex-col items-center justify-center w-full rounded border-2 border-dashed"
@@ -286,6 +331,7 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
               height: 120,
               borderColor: isDark ? "#3f3f46" : "#d4d4d8",
               color: isDark ? "#71717a" : "#a1a1aa",
+              cursor: "pointer",
             }}
           >
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -293,61 +339,19 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
               <circle cx="8.5" cy="8.5" r="1.5" />
               <path d="M21 15l-5-5L5 21" />
             </svg>
-            <span className="text-xs mt-2">拖拽图片或点击上传</span>
+            <span className="text-xs mt-2">点击上传或拖拽图片</span>
           </div>
         )}
       </div>
 
-      <div className="flex gap-1.5 mt-2">
-        <button
-          type="button"
-          onClick={handleUploadClick}
-          className="flex-1 text-[11px] px-2 py-1 rounded border nodrag"
-          style={{
-            background: isDark ? "#27272a" : "#f4f4f5",
-            borderColor: isDark ? "#3f3f46" : "#d4d4d8",
-            color: isDark ? "#e4e4e7" : "#3f3f46",
-          }}
-        >
-          上传
-        </button>
-        {imageUrl && (
-          <button
-            type="button"
-            onClick={handleSaveLocally}
-            disabled={saving}
-            className="text-[11px] px-2 py-1 rounded border nodrag"
-            style={{
-              background: isDark ? "#27272a" : "#f4f4f5",
-              borderColor: isDark ? "#3f3f46" : "#d4d4d8",
-              color: saving ? (isDark ? "#52525b" : "#a1a1aa") : "#22c55e",
-            }}
-            title="保存原图到本地"
-          >
-            {saving ? "..." : "保存"}
-          </button>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <input
-          type="text"
-          placeholder="粘贴URL..."
-          title="图片URL"
-          defaultValue={settings.source === "url" ? imageUrl : ""}
-          onBlur={handleUrlInput}
-          className="flex-1 text-[11px] px-2 py-1 rounded border outline-none nodrag"
-          style={{
-            background: isDark ? "#27272a" : "#f4f4f5",
-            borderColor: isDark ? "#3f3f46" : "#d4d4d8",
-            color: isDark ? "#e4e4e7" : "#3f3f46",
-          }}
-        />
-      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        title="选择图片文件"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
       {fileName && (
         <div

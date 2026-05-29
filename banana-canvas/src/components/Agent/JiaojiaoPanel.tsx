@@ -191,6 +191,11 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     sendText(opt);
   }, [sendText]);
 
+  // Custom option handler — focus input field for free typing
+  const handleCustomInput = useCallback(() => {
+    inputRef.current?.focus();
+  }, []);
+
   // ── Deploy nodes to canvas ──
   const deployToCanvas = useCallback((deploy: DeployPreview) => {
     const idMap = new Map<string, string>();
@@ -237,7 +242,8 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   }, [setNodes, setEdges]);
 
   // ── Build deploy from storyboard with output mode ──
-  const buildDeployFromStoryboard = useCallback((storyboard: StoryboardOutput, mode: OutputMode): DeployPreview => {
+  // shots are already SplitShot[] from onDone — do NOT re-split
+  const buildDeployFromStoryboard = useCallback((storyboard: StoryboardOutput & { shots: SplitShot[] }, mode: OutputMode): DeployPreview => {
     const { nodes: existingNodes } = useGraphStore.getState();
     const previewNodes: DeployPreview["nodes"] = [];
     const previewEdges: DeployPreview["edges"] = [];
@@ -254,11 +260,11 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     const textDims = NODE_DEFAULT_SIZES["text-node"] ?? { w: 220, h: 120 };
     const rowH = Math.max(genDims.h, textDims.h) + 30;
 
-    // Always apply shot splitting for consistent handling
-    const splitShots: SplitShot[] = splitTransitionShots(storyboard.shots);
+    // Use already-split shots directly — no re-splitting
+    const shots = storyboard.shots;
 
     if (mode === "full-board") {
-      const fullPrompt = buildFullStoryboardPrompt(storyboard, splitShots);
+      const fullPrompt = buildFullStoryboardPrompt(storyboard, shots);
       const textId = "preview-text-full";
       const genId = "preview-gen-full";
 
@@ -280,18 +286,19 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
         position: { x: startX + textDims.w + 30, y: startY },
       });
-      previewEdges.push({ from: textId, to: genId, fromPort: "output", toPort: "default" });
+      previewEdges.push({ from: textId, to: genId, fromPort: "default", toPort: "default" });
     } else {
       // Per-shot mode: each SplitShot gets its own text-node + gen-image pair
-      for (let i = 0; i < splitShots.length; i++) {
-        const shot = splitShots[i];
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i];
         const textId = `preview-text-${i}`;
         const genId = `preview-gen-${i}`;
         const rowY = startY + i * rowH;
 
         const shotPrompt = buildShotPrompt(storyboard, shot);
         const textContent = buildTextNodeContent(shot, shotPrompt);
-        const nodeName = `${shot.segmentLabel}（${shot.time_range}）`;
+        const label = shot.segmentLabel || `镜头${shot.cut}`;
+        const nodeName = `${label}（${shot.time_range}）`;
 
         previewNodes.push({
           id: textId,
@@ -305,13 +312,13 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         previewNodes.push({
           id: genId,
           type: "gen-image",
-          nodeName: `${shot.segmentLabel} 生成`,
+          nodeName: `${label} 生成`,
           prompt: shotPrompt,
           content: "",
           settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
           position: { x: startX + textDims.w + 30, y: rowY },
         });
-        previewEdges.push({ from: textId, to: genId, fromPort: "output", toPort: "default" });
+        previewEdges.push({ from: textId, to: genId, fromPort: "default", toPort: "default" });
       }
     }
 
@@ -326,11 +333,11 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     setStatus("deploying");
 
     // Always build and deploy — this is guaranteed execution
-    const deploy = buildDeployFromStoryboard(storyboardData, mode);
+    const deploy = buildDeployFromStoryboard(storyboardData as StoryboardOutput & { shots: SplitShot[] }, mode);
     deployToCanvas(deploy);
 
     const modeLabel = mode === "full-board" ? "整版" : "分镜头";
-    const shotCount = mode === "per-shot" ? splitTransitionShots(storyboardData.shots).length : storyboardData.shots.length;
+    const shotCount = storyboardData.shots.length;
     addMessage({ role: "assistant", content: `已部署 ${deploy.nodes.length} 个节点到画布（${modeLabel}模式）！\n包含 ${shotCount} 个镜头单元。你可以自由编辑它们。` });
     setStoryboardData(null);
     setSkillPhase("idle");
@@ -388,60 +395,53 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         transition: "transform 0.3s ease",
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #27272a", background: "#18181b" }}>
-        <span style={{ fontSize: 18 }}>🍌</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#facc15" }}>蕉蕉</span>
-        <div style={{ flex: 1 }} />
+      {/* Header: single compact row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderBottom: "1px solid #27272a", background: "#18181b" }}>
+        <span style={{ fontSize: 15 }}>🍌</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#facc15", whiteSpace: "nowrap" }}>蕉蕉</span>
         <button type="button" onClick={() => { createNewSession(); setShowHistory(false); }}
-          className="jiaojiao-header-btn jiaojiao-new-chat-btn"
           title="新建对话"
           style={{
+            width: 22, height: 22, borderRadius: 5,
             background: "#16a34a", border: "none", color: "#ffffff",
-            cursor: "pointer", fontSize: 12, fontWeight: 700, lineHeight: 1,
-            padding: "5px 12px", borderRadius: 6,
-            transition: "all 0.15s",
+            cursor: "pointer", fontSize: 14, fontWeight: 700, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            marginLeft: 6, transition: "opacity 0.15s",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "#15803d"; e.currentTarget.style.transform = "scale(1.05)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "#16a34a"; e.currentTarget.style.transform = "scale(1)"; }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1.05)"; }}
-        >+ 新对话</button>
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+        >+</button>
         <button type="button" onClick={() => setShowHistory(!showHistory)}
-          className="jiaojiao-header-btn jiaojiao-history-btn"
           title="历史记录"
           style={{
+            width: 22, height: 22, borderRadius: 5,
             background: showHistory ? "#1d4ed8" : "#2563eb", border: "none", color: "#ffffff",
-            cursor: "pointer", fontSize: 12, fontWeight: 700, lineHeight: 1,
-            padding: "5px 12px", borderRadius: 6,
-            transition: "all 0.15s",
+            cursor: "pointer", fontSize: 12, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "opacity 0.15s",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "#1d4ed8"; e.currentTarget.style.transform = "scale(1.05)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = showHistory ? "#1d4ed8" : "#2563eb"; e.currentTarget.style.transform = "scale(1)"; }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1.05)"; }}
-        >&#128339; 历史</button>
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+        >&#128339;</button>
+        <div style={{ flex: 1 }} />
         <select
           value={currentModel}
           onChange={(e) => setSelectedModel(e.target.value)}
           title="选择模型"
           aria-label="选择模型"
-          style={{ fontSize: 10, padding: "2px 4px", borderRadius: 4, border: "1px solid #3f3f46", background: "#0f0f0f", color: "#a1a1aa", maxWidth: 120 }}
+          style={{ fontSize: 10, padding: "2px 4px", borderRadius: 4, border: "1px solid #3f3f46", background: "#0f0f0f", color: "#a1a1aa", maxWidth: 130 }}
         >
           {chatModels.map((m) => (
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
-        <button type="button" onClick={closePanel} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer", fontSize: 16, lineHeight: 1 }} title="收起">✕</button>
-      </div>
-
-      {/* Status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: "#0f0f0f" }}>
-        <div style={{ width: 6, height: 6, borderRadius: "50%", background: status === "idle" ? "#22c55e" : "#f97316", boxShadow: status !== "idle" ? "0 0 6px #f97316" : "none" }} />
-        <span style={{ fontSize: 10, color: "#71717a" }}>{statusLabel[status] ?? "空闲"}</span>
+        <div style={{ width: 1, height: 10, background: "#27272a", margin: "0 3px" }} />
+        <div style={{ width: 5, height: 5, borderRadius: "50%", background: status === "idle" ? "#22c55e" : "#f97316", boxShadow: status !== "idle" ? "0 0 5px #f97316" : "none" }} />
+        <span style={{ fontSize: 9, color: "#71717a", whiteSpace: "nowrap" }}>{statusLabel[status] ?? "空闲"}</span>
         {phaseLabel[skillPhase] && (
-          <span style={{ fontSize: 10, color: "#f97316", marginLeft: 4 }}>{phaseLabel[skillPhase]}</span>
+          <span style={{ fontSize: 9, color: "#f97316", whiteSpace: "nowrap" }}>{phaseLabel[skillPhase]}</span>
         )}
+        <button type="button" onClick={closePanel} style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: 14, lineHeight: 1, marginLeft: 2 }} title="收起">✕</button>
       </div>
 
       {/* Messages area (relative for SessionHistoryPanel overlay) */}
@@ -456,8 +456,30 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
           <div style={{ textAlign: "center", padding: "40px 20px", color: "#3f3f46", fontSize: 12 }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🍌</div>
             <div>你好！我是蕉蕉～</div>
-            <div>想创作什么类型的作品？</div>
-            <div style={{ marginTop: 8, color: "#52525b" }}>试试说「帮我画分镜」</div>
+            <div style={{ marginTop: 4 }}>想创作什么类型的作品？</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", marginTop: 12 }}>
+              {["帮我画分镜", "优化提示词", "聊聊创作想法"].map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => sendText(opt)}
+                  style={{
+                    padding: "5px 14px",
+                    borderRadius: 14,
+                    border: "1px solid #3f3f46",
+                    background: "#18181b",
+                    color: "#a1a1aa",
+                    fontSize: 11,
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#f97316"; e.currentTarget.style.color = "#f97316"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#3f3f46"; e.currentTarget.style.color = "#a1a1aa"; }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((msg, i) => {
@@ -476,6 +498,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
                   options={msgOption.options}
                   hint={msgOption.hint}
                   onSelect={handleQuickReply}
+                  onCustom={handleCustomInput}
                 />
               )}
             </div>
@@ -574,18 +597,9 @@ function buildShotPrompt(sb: StoryboardOutput, shot: SplitShot): string {
   return `${shot.description}, ${shot.camera}, ${sb.style.art_style}, ${sb.style.color_palette}, ${sb.style.lighting}, ${sceneStyle}cinematic, high quality. 整洁的插图、流畅的阴影处理、柔和的照明效果、高清晰度、文字必须清晰可读。`;
 }
 
-function buildTextNodeContent(shot: SplitShot, prompt: string): string {
-  const refHint = shot.ref_images && shot.ref_images.length > 0
-    ? shot.ref_images.map((_r, i) => `@图片${i + 1}`).join("、")
-    : "（留空，可添加参考图）";
-
-  return `【${shot.segmentLabel}】${shot.time_range}
-━━━━━━━━━━
-景别：${shot.camera}
-主体：${refHint}
+function buildTextNodeContent(shot: SplitShot, _prompt: string): string {
+  return `主体：${shot.subject}
 动作：${shot.action}
-运镜：${shot.camera}
-画面：${shot.description}
-
-提示词：${prompt}`;
+描述：${shot.description}
+镜头：${shot.camera}`;
 }

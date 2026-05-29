@@ -7,9 +7,6 @@ export type NodeType =
   | "video-input"
   | "audio-input"
   | "video-analyze"
-  | "storyboard-node"
-  | "storyboard-chart-node"
-  | "table-editor-node"
   | "canvas-node"
   | "doodle-canvas"
   | "gen-image"
@@ -121,9 +118,6 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   "video-input": "视频输入",
   "audio-input": "音频输入",
   "video-analyze": "视频分析",
-  "storyboard-node": "分镜视表",
-  "storyboard-chart-node": "分镜图表",
-  "table-editor-node": "表格编辑器",
   "canvas-node": "画板节点",
   "doodle-canvas": "涂鸦画板",
   "gen-image": "生成图片",
@@ -159,9 +153,6 @@ export const NODE_DEFAULT_SIZES: Record<NodeType, NodeDimensions> = {
   "video-input": { w: 360, h: 420 },
   "audio-input": { w: 320, h: 200 },
   "video-analyze": { w: 400, h: 500 },
-  "storyboard-node": { w: 600, h: 500 },
-  "storyboard-chart-node": { w: 540, h: 480 },
-  "table-editor-node": { w: 520, h: 420 },
   "canvas-node": { w: 600, h: 500 },
   "doodle-canvas": { w: 700, h: 300 },
   "gen-image": { w: 320, h: 320 },
@@ -218,7 +209,7 @@ export function getDefaultSettings(type: NodeType): AnyNodeSettings {
     case "text-node":
       return { negativePrompt: "", qualityPrompt: "" };
     case "gen-image":
-      return { model: "gpt-image-2", ratio: "1:1", resolution: "Auto", batchCount: 1, compactImageWidget: true, isCollapsed: false, refAnnotations: {}, localPrompt: "", isAutoPrompt: true };
+      return { model: "gpt-image-2", ratio: "16:9", resolution: "1K", batchCount: 1, compactImageWidget: true, isCollapsed: false, refAnnotations: {}, localPrompt: "", isAutoPrompt: true };
     case "gen-video":
       return { model: "seedance-2.0", duration: 5, fps: 24, resolution: "720p", seed: -1, negativePrompt: "", ratio: "16:9", generateAudio: true, smartDuration: false, referenceMode: "multimodal", startFrameRef: "", endFrameRef: "" };
     case "preview":
@@ -235,12 +226,6 @@ export function getDefaultSettings(type: NodeType): AnyNodeSettings {
     case "motion-control":
       return { referenceMode: "video", strength: 0.8, smoothness: 0.5, frameRange: "" };
     // ── 工具辅助组 ──
-    case "storyboard-node":
-      return { columns: 3, shotCount: 6, aspectRatio: "16:9" };
-    case "storyboard-chart-node":
-      return { timelineScale: 1, showLabels: true, groupBy: "scene" };
-    case "table-editor-node":
-      return { rows: 4, columns: 3, headers: "场景,描述,时长" };
     case "canvas-node":
       return { brushSize: 4, brushColor: "#ffffff", backgroundColor: "#000000", backgroundImageUrl: "", backgroundFit: "contain", strokes: [], tool: "brush", canvasPrompt: "", model: "gpt-image-2", ratio: "16:9", refBindings: [], selectedRefId: "" };
     case "doodle-canvas":

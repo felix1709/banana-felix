@@ -50,6 +50,7 @@ import { toXyNode, toXyEdge } from "./utils/nodeConvert";
 import { JiaojiaoBubble } from "./components/Agent/JiaojiaoBubble";
 import { JiaojiaoPanel } from "./components/Agent/JiaojiaoPanel";
 import { useAgentStore } from "./stores/agentStore";
+import { useWorkspaceStore } from "./stores/workspaceStore";
 
 function CanvasApp() {
   const theme = useUIStore((s) => s.theme);
@@ -677,6 +678,11 @@ function CanvasApp() {
       });
     });
     return unsub;
+  }, []);
+
+  // ── Silently fetch models on startup ──
+  useEffect(() => {
+    useWorkspaceStore.getState().fetchModelsSilently();
   }, []);
 
   return (

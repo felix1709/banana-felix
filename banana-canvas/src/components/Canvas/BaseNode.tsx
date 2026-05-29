@@ -52,9 +52,6 @@ export const NODE_PORT_CONFIG: Partial<Record<NodeType, { inputs: PortConfig[]; 
   "professional-camera": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "motion-control": { inputs: [{ id: "default" }, { id: "video", label: "参考视频", position: 0.7 }], outputs: [{ id: "default" }] },
   // ── 工具辅助组 ──
-  "storyboard-node": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
-  "storyboard-chart-node": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
-  "table-editor-node": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "canvas-node": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "doodle-canvas": { inputs: [], outputs: [{ id: "default" }] },
   "gen-music": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
@@ -99,6 +96,17 @@ export const BaseNode = memo(function BaseNode({
   // Read nodeName from graphStore (single source of truth)
   const storedNodeName = useGraphStore((s) => s.nodes.find((n) => n.id === id)?.nodeName);
   const displayName = storedNodeName || nodeName || NODE_TYPE_LABELS[nodeType];
+
+  // Delete handler
+  const removeNode = useGraphStore((s) => s.removeNode);
+  const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    removeNode(id);
+    setXyNodes((nds) => nds.filter((n) => n.id !== id));
+    setXyEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+  }, [id, removeNode, setXyNodes, setXyEdges]);
 
   const portConfig = NODE_PORT_CONFIG[nodeType];
   const resolvedInputs = inputPorts ?? portConfig?.inputs;
@@ -150,7 +158,6 @@ export const BaseNode = memo(function BaseNode({
   };
 
   // ── Resize handle ──
-  const { setNodes: setXyNodes } = useReactFlow();
   const resizeStart = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
 
   const onResizePointerDown = useCallback((e: React.PointerEvent) => {
@@ -249,7 +256,7 @@ export const BaseNode = memo(function BaseNode({
           <span
             className="text-xs font-medium truncate cursor-text nodrag"
             style={{ color: isDark ? "#f4f4f5" : "#18181b" }}
-            onDoubleClick={startEditing}
+            onClick={startEditing}
           >
             {displayName}
           </span>
@@ -312,6 +319,41 @@ export const BaseNode = memo(function BaseNode({
           <path d="M9 9L9 9" stroke={isDark ? "#52525b" : "#a1a1aa"} strokeWidth="2" strokeLinecap="round"/>
         </svg>
       </div>
+
+      {/* Delete button — top-right outside, shown when selected */}
+      {selected && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          className="nodrag"
+          style={{
+            position: "absolute",
+            top: -8,
+            right: -8,
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            border: "2px solid #18181b",
+            background: "#ef4444",
+            color: "#ffffff",
+            fontSize: 10,
+            fontWeight: 700,
+            lineHeight: 1,
+            cursor: "pointer",
+            zIndex: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+            transition: "transform 0.1s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.2)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          title="删除节点"
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 });

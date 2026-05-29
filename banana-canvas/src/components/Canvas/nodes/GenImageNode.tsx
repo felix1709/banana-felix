@@ -14,8 +14,9 @@ import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { v4 as uuid } from "uuid";
 import { parseMentions, getMentionableNodes, buildMergedPrompt } from "../../../hooks/useMentionParser";
 import { buildAnchorText } from "../../../hooks/useAnchorText";
-import { NODE_TYPE_LABELS } from "../../../types/node";
-import type { NodeType, CanvasEdge } from "../../../types/node";
+import { NODE_TYPE_LABELS, NODE_DEFAULT_SIZES, getDefaultSettings } from "../../../types/node";
+import type { NodeType, CanvasEdge, CanvasNode } from "../../../types/node";
+import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
 
 export const GenImageNode = memo(function GenImageNode({ id, data, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -292,6 +293,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
         updateJob(jobId, { status: "succeeded", progress: 100, resultUrl: result.imageUrl });
         updateNode(id, { content: result.imageUrl });
         setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, content: result.imageUrl } } : n));
+        spawnInputImageNode(result.imageUrl);
       } else if (result.status === "failed") {
         updateJob(jobId, { status: "failed", error: result.error });
       }
@@ -303,6 +305,58 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
   const handleCancel = useCallback(() => {
     if (latestJob) updateJob(latestJob.id, { status: "cancelled" });
   }, [latestJob, updateJob]);
+
+  // ── Auto-create input-image node when generation succeeds ──
+  const spawnInputImageNode = useCallback((imageUrl: string) => {
+    const gs = useGraphStore.getState();
+    const currentNode = gs.nodes.find((n) => n.id === id);
+    if (!currentNode) return;
+
+    // Check if an input-image node already connected from this gen-image node
+    const existingOutputEdge = gs.edges.find(
+      (e) => e.from === id && gs.nodes.some((n) => n.id === e.to && n.type === "input-image"),
+    );
+    if (existingOutputEdge) {
+      // Update existing input-image node content
+      const targetNode = gs.nodes.find((n) => n.id === existingOutputEdge.to);
+      if (targetNode) {
+        gs.updateNode(existingOutputEdge.to, { content: imageUrl });
+        setXyNodes((nds) => nds.map((n) => n.id === existingOutputEdge.to ? { ...n, data: { ...n.data, content: imageUrl } } : n));
+      }
+      return;
+    }
+
+    // Create new input-image node to the right
+    const imgDims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
+    const newNodeId = uuid();
+    const newNode: CanvasNode = {
+      id: newNodeId,
+      type: "input-image",
+      x: currentNode.x + (currentNode.width || 320) + 30,
+      y: currentNode.y,
+      width: imgDims.w,
+      height: imgDims.h,
+      content: imageUrl,
+      prompt: "",
+      nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果` : "生成结果",
+      settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl, fileName: "generated.png" },
+    };
+
+    gs.addNode(newNode);
+    setXyNodes((nds) => [...nds, toXyNode(newNode)]);
+
+    // Create edge from gen-image output to input-image input
+    const edge: CanvasEdge = {
+      id: uuid(),
+      from: id,
+      to: newNodeId,
+      fromPort: "default",
+      toPort: "default",
+      inputType: "default",
+    };
+    gs.addEdge(edge);
+    setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+  }, [id, setXyNodes, setXyEdges]);
 
   const s = (base: Record<string, string>) => ({
     background: isDark ? "#27272a" : "#f4f4f5",
@@ -585,57 +639,43 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
         ))}
       </div>
 
-      {/* Image preview / progress */}
-      <div
-        className="w-full rounded flex items-center justify-center overflow-hidden relative"
-        style={{
-          height: isCompact ? 120 : 200,
-          background: isDark ? "#27272a" : "#f4f4f5",
-          border: `1px solid ${isDark ? "#3f3f46" : "#d4d4d8"}`,
-        }}
-      >
-        {isRunning ? (
-          <div className="flex flex-col items-center gap-1.5">
-            <div className="relative">
-              <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-blue-500" />
-            </div>
-            <span className="text-[11px] font-mono" style={{ color: isDark ? "#a1a1aa" : "#71717a" }}>
-              {elapsed}s
-            </span>
-            <span className="text-[9px]" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
-              {modelDef?.label ?? settings.model}
-            </span>
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="text-[10px] px-2 py-0.5 rounded border"
-              style={{ borderColor: "#ef4444", color: "#ef4444" }}
-            >
-              取消
-            </button>
-          </div>
-        ) : latestJob?.status === "failed" ? (
-          <div className="flex flex-col items-center gap-1 px-2 text-center">
-            <span className="text-[11px] text-red-400">{latestJob.error || "生成失败"}</span>
-            <button
-              type="button"
-              onClick={handleGenerate}
-              className="text-[10px] px-2 py-0.5 rounded border"
-              style={{ borderColor: "#f97316", color: "#f97316" }}
-            >
-              重试
-            </button>
-          </div>
-        ) : hasResult ? (
-          <img src={content} alt="生成结果" className="w-full h-full object-contain" loading="lazy" />
-        ) : (
-          <span className="text-[11px]" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>点击生成</span>
-        )}
-      </div>
+      {/* Compact generation status */}
+      {isRunning && (
+        <div className="flex items-center gap-2 mt-1.5 mb-1">
+          <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-[10px] font-mono" style={{ color: "#3b82f6" }}>{elapsed}s</span>
+          <span className="text-[9px]" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>{modelDef?.label ?? settings.model}</span>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="text-[9px] px-1.5 py-0.5 rounded border ml-auto"
+            style={{ borderColor: "#ef4444", color: "#ef4444" }}
+          >
+            取消
+          </button>
+        </div>
+      )}
+      {latestJob?.status === "failed" && (
+        <div className="flex items-center gap-2 mt-1.5 mb-1">
+          <span className="text-[10px] text-red-400 truncate flex-1">{latestJob.error || "生成失败"}</span>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="text-[9px] px-1.5 py-0.5 rounded border shrink-0"
+            style={{ borderColor: "#f97316", color: "#f97316" }}
+          >
+            重试
+          </button>
+        </div>
+      )}
+      {hasResult && !isRunning && (
+        <div className="flex items-center gap-1 mt-1.5 mb-1">
+          <span className="text-[10px]" style={{ color: "#22c55e" }}>已生成 → 图片输入节点</span>
+        </div>
+      )}
 
       {/* Generate button */}
-      <div className="flex items-center justify-center mt-2">
+      <div className="flex items-center justify-center mt-1">
         <button
           type="button"
           onClick={handleGenerate}

@@ -71,7 +71,7 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
     setVideoApiKey(localVideoKey.trim());
   }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey]);
 
-  const handleTest = useCallback(async () => {
+  const handleTestAndSave = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     applySettings();
@@ -84,13 +84,15 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
       const videoCount = models.filter((m) => m.type === "video").length;
       const chatCount = models.filter((m) => m.type === "chat").length;
       setTestResult({ ok: true, msg: `连接成功！获取 ${models.length} 个模型（图片:${imageCount} 视频:${videoCount} 聊天:${chatCount}）` });
+      setTesting(false);
+      setTimeout(onClose, 1200);
     } else {
-      setTestResult({ ok: false, msg: result.error ?? "连接失败" });
+      setTestResult({ ok: false, msg: result.error ?? "连接失败，请检查地址和密钥" });
+      setTesting(false);
     }
-    setTesting(false);
-  }, [applySettings, setRemoteModels]);
+  }, [applySettings, setRemoteModels, onClose]);
 
-  const handleSave = useCallback(() => {
+  const handleSaveOnly = useCallback(() => {
     applySettings();
     onClose();
   }, [applySettings, onClose]);
@@ -185,20 +187,23 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
 
         {/* Buttons */}
         <div className="flex gap-2">
-          <button type="button" onClick={handleTest} disabled={testing || !localUrl.trim()}
-            className="flex-1 text-xs px-3 py-2 rounded-lg border font-medium"
-            style={{ borderColor: isDark ? "#3f3f46" : "#d4d4d8", background: isDark ? "#27272a" : "#f4f4f5",
-              color: testing || !localUrl.trim() ? (isDark ? "#52525b" : "#a1a1aa") : (isDark ? "#e4e4e7" : "#18181b") }}>
-            {testing ? "连接中..." : "测试连接并获取模型"}
-          </button>
-          <button type="button" onClick={handleSave}
+          <button type="button" onClick={handleTestAndSave} disabled={testing || !localUrl.trim()}
             className="flex-1 text-xs px-3 py-2 rounded-lg font-medium"
-            style={{ background: "#3b82f6", color: "#fff" }}>
-            保存并关闭
+            style={{
+              background: (testing || !localUrl.trim()) ? "#27272a" : "#3b82f6",
+              color: (testing || !localUrl.trim()) ? "#52525b" : "#ffffff",
+              cursor: (testing || !localUrl.trim()) ? "not-allowed" : "pointer",
+            }}>
+            {testing ? "连接中..." : "测试并保存"}
+          </button>
+          <button type="button" onClick={handleSaveOnly}
+            className="text-xs px-3 py-2 rounded-lg border font-medium"
+            style={{ borderColor: isDark ? "#3f3f46" : "#d4d4d8", background: isDark ? "#27272a" : "#f4f4f5", color: isDark ? "#a1a1aa" : "#71717a" }}>
+            仅保存
           </button>
         </div>
         <div className="text-[9px] mt-3" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>
-          密钥仅保存在本地，不会上传到任何服务器
+          配置保存在本地，应用重启后自动加载，无需重复测试
         </div>
       </div>
     </div>

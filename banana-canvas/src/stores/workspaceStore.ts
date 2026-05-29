@@ -30,6 +30,7 @@ interface WorkspaceState {
   setDownloadDir: (dir: string) => void;
   setRemoteModels: (models: RemoteModel[]) => void;
   setModelsLoading: (loading: boolean) => void;
+  fetchModelsSilently: () => Promise<void>;
   getImageModels: () => RemoteModel[];
   getVideoModels: () => RemoteModel[];
   getChatApiUrl: () => string;
@@ -57,7 +58,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       autoSaveInterval: 5,
       autoSaveEnabled: true,
       downloadDir: "",
-      remoteModels: [],
+      remoteModels: (() => {
+        try { return JSON.parse(ls("banana_canvas_remote_models") || "[]"); } catch { return []; }
+      })(),
       modelsLoading: false,
 
       setProjectName: (name) =>
@@ -112,10 +115,27 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => { state.downloadDir = dir; }),
 
       setRemoteModels: (models) =>
-        set((state) => { state.remoteModels = models; }),
+        set((state) => {
+          state.remoteModels = models;
+          if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_remote_models", JSON.stringify(models));
+        }),
 
       setModelsLoading: (loading) =>
         set((state) => { state.modelsLoading = loading; }),
+
+      fetchModelsSilently: async () => {
+        const { baseUrl, modelsLoading } = get();
+        if (!baseUrl || modelsLoading) return;
+        set((state) => { state.modelsLoading = true; });
+        try {
+          const { testConnection } = await import("../services/apiService");
+          const result = await testConnection();
+          if (result.ok && result.models) {
+            get().setRemoteModels(result.models);
+          }
+        } catch { /* silent */ }
+        set((state) => { state.modelsLoading = false; });
+      },
 
       getImageModels: () => {
         return get().remoteModels.filter((m) => m.type === "image");

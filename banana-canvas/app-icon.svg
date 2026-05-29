@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="banana" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD700"/>
+      <stop offset="50%" style="stop-color:#FFC107"/>
+      <stop offset="100%" style="stop-color:#FF9800"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFEB3B;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#FFC107;stop-opacity:0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#FF9800" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="512" cy="512" r="480" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="460" fill="none" stroke="#FF9800" stroke-width="2" stroke-opacity="0.3"/>
+  <!-- Banana body - curved shape -->
+  <g filter="url(#shadow)" transform="translate(512, 480) rotate(-15)">
+    <!-- Main banana shape -->
+    <path d="M-80,-240 C-60,-260 80,-250 140,-180 C200,-110 200,0 180,80 C160,160 100,240 40,280 C-20,320 -80,300 -100,260 C-120,220 -80,160 -60,100 C-40,40 -40,-20 -60,-80 C-80,-140 -100,-200 -80,-240 Z"
+          fill="url(#banana)"/>
+    <!-- Banana highlight/shine -->
+    <path d="M-60,-220 C-40,-240 60,-230 110,-170 C150,-120 160,-40 150,30 C140,100 100,170 50,210 C10,240 -30,240 -50,220 C-20,200 20,160 50,110 C80,60 90,-10 80,-70 C70,-130 30,-190 -20,-210 C-40,-218 -55,-222 -60,-220 Z"
+          fill="url(#shine)"/>
+    <!-- Banana tip (bottom) -->
+    <ellipse cx="-75" cy="275" rx="20" ry="12" fill="#8B6914" transform="rotate(20, -75, 275)"/>
+    <!-- Banana stem (top) -->
+    <path d="M-85,-238 C-90,-250 -70,-265 -55,-258 C-45,-254 -50,-240 -60,-235 Z" fill="#6B8E23"/>
+    <path d="M-55,-258 C-40,-265 -20,-260 -10,-250 C-15,-245 -30,-248 -45,-250 Z" fill="#556B2F"/>
+  </g>
+  <!-- Cute face - eyes -->
+  <g transform="translate(512, 420)">
+    <!-- Left eye -->
+    <ellipse cx="-55" cy="-30" rx="28" ry="32" fill="white"/>
+    <ellipse cx="-50" cy="-25" rx="18" ry="22" fill="#1a1a2e"/>
+    <circle cx="-44" cy="-32" r="7" fill="white" opacity="0.9"/>
+    <!-- Right eye -->
+    <ellipse cx="55" cy="-30" rx="28" ry="32" fill="white"/>
+    <ellipse cx="60" cy="-25" rx="18" ry="22" fill="#1a1a2e"/>
+    <circle cx="66" cy="-32" r="7" fill="white" opacity="0.9"/>
+    <!-- Cute smile -->
+    <path d="M-30,25 Q0,60 30,25" fill="none" stroke="#1a1a2e" stroke-width="5" stroke-linecap="round"/>
+    <!-- Blush -->
+    <ellipse cx="-70" cy="15" rx="18" ry="10" fill="#FF6B6B" opacity="0.3"/>
+    <ellipse cx="70" cy="15" rx="18" ry="10" fill="#FF6B6B" opacity="0.3"/>
+  </g>
+  <!-- Sparkle effects -->
+  <g fill="#FFD700" opacity="0.7">
+    <polygon points="280,250 285,240 290,250 285,260" />
+    <polygon points="720,280 726,268 732,280 726,292" />
+    <polygon points="300,600 305,590 310,600 305,610" />
+    <polygon points="740,580 745,568 750,580 745,592" />
+  </g>
+</svg>

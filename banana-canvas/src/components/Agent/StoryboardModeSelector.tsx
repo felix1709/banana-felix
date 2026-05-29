@@ -20,12 +20,17 @@ export const StoryboardModeSelector = memo(function StoryboardModeSelector({ sto
           风格：{storyboard.style.art_style} | 色彩：{storyboard.style.color_palette} | 光影：{storyboard.style.lighting}
         </div>
       )}
-      <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: 8 }} className="custom-scrollbar">
-        {storyboard.shots.map((shot) => (
-          <div key={shot.cut} style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 3, paddingLeft: 8, borderLeft: "2px solid #3f3f46" }}>
+      <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 8 }} className="custom-scrollbar">
+        {storyboard.shots.map((shot, i) => (
+          <div key={`${shot.cut}-${i}`} style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 4, paddingLeft: 8, borderLeft: "2px solid #3f3f46" }}>
             <span style={{ color: "#e4e4e7" }}>Cut {shot.cut}</span>{" "}
-            {shot.time_range} · {shot.camera}
-            <div style={{ color: "#71717a", marginTop: 1 }}>{shot.subject} — {shot.action}</div>
+            {shot.time_range}
+            <div style={{ color: "#71717a", marginTop: 1 }}>
+              <div>主体：{shot.subject}</div>
+              <div>动作：{shot.action}</div>
+              <div>描述：{shot.description}</div>
+              <div>镜头：{shot.camera}</div>
+            </div>
           </div>
         ))}
       </div>
