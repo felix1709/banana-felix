@@ -29,7 +29,7 @@ interface BaseNodeProps {
 
 export const NODE_PORT_CONFIG: Partial<Record<NodeType, { inputs: PortConfig[]; outputs: PortConfig[] }>> = {
   "input-image": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
-  "video-input": { inputs: [], outputs: [{ id: "default" }] },
+  "video-input": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "text-node": { inputs: [], outputs: [{ id: "default" }] },
   "video-analyze": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "image-compare": {

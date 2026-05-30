@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
 import type { NodeProps } from "@xyflow/react";
-import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { useReactFlow } from "@xyflow/react";
 import { BaseNode } from "../BaseNode";
 import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useGraphStore } from "../../../stores/graphStore";
@@ -8,9 +8,10 @@ import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
 import { useGenerationPoll } from "../../../hooks/useGenerationPoll";
 import { generateImage, type ImageGenerateRequest } from "../../../services/apiService";
-import { IMAGE_MODELS, ASPECT_RATIOS, RESOLUTIONS, getPixelSize, getModelById } from "../../../types/model";
+import { ASPECT_RATIOS, RESOLUTIONS, getPixelSize, getModelById } from "../../../types/model";
 import type { GenImageSettings } from "../../../types/settings";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
+import { getImageModelOptions } from "./imageModelOptions";
 import { v4 as uuid } from "uuid";
 import { parseMentions, getMentionableNodes, buildMergedPrompt } from "../../../hooks/useMentionParser";
 import { buildAnchorText } from "../../../hooks/useAnchorText";
@@ -25,7 +26,6 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
   const addJob = useJobStore((s) => s.addJob);
   const updateJob = useJobStore((s) => s.updateJob);
   const { settings, updateSettings } = useNodeSettings<GenImageSettings>(id);
-  const remoteModels = useWorkspaceStore((s) => s.remoteModels);
   const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
 
   const content = (data?.content as string) ?? "";
@@ -105,18 +105,14 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
 
   const isRunning = latestJob?.status === "pending" || latestJob?.status === "running";
   const hasResult = !!content && (content.startsWith("http") || content.startsWith("data:"));
-  const imageModelOptions = useMemo(() => {
-    const dynamic = remoteModels.filter((m) => m.type === "image");
-    if (dynamic.length > 0) return dynamic.map((m) => ({ id: m.id, label: m.name }));
-    const maybeImage = remoteModels.filter((m) => m.type !== "video" && m.type !== "chat");
-    if (maybeImage.length > 0) return maybeImage.map((m) => ({ id: m.id, label: m.name }));
-    return IMAGE_MODELS.map((m) => ({ id: m.id, label: `${m.label} (${m.provider})` }));
-  }, [remoteModels]);
+  const imageModelOptions = useMemo(() => getImageModelOptions(), []);
+  const effectiveModel = useMemo(() => {
+    if (imageModelOptions.some((m) => m.id === settings.model)) return settings.model;
+    return imageModelOptions[0]?.id ?? "gpt-image-2";
+  }, [settings.model, imageModelOptions]);
 
-  const modelDef = getModelById(settings.model);
+  const modelDef = getModelById(effectiveModel);
   const features = modelDef?.features;
-  const isCollapsed = settings.isCollapsed ?? false;
-  const isCompact = settings.compactImageWidget ?? true;
 
   // @-mention autocomplete state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
@@ -260,7 +256,19 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     const jobId = uuid();
 
     try {
-      addJob({ id: jobId, nodeId: id, type: "image", taskId: "", status: "pending", progress: 0, createdAt: Date.now() });
+      // Determine API routing for Gemini models
+      const geminiBaseUrl = features?.geminiChat
+        ? useWorkspaceStore.getState().geminiBaseUrl
+        : undefined;
+      const geminiApiKey = features?.geminiChat
+        ? useWorkspaceStore.getState().geminiApiKey
+        : undefined;
+
+      addJob({
+        id: jobId, nodeId: id, type: "image", taskId: "", status: "pending", progress: 0, createdAt: Date.now(),
+        apiBaseUrl: geminiBaseUrl || undefined,
+        apiApiKey: geminiApiKey || undefined,
+      });
 
       // Collect all reference images (edge-connected + @mentioned)
       const allRefImages: string[] = [];
@@ -272,10 +280,11 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
       }
 
       const req: ImageGenerateRequest = {
-        model: settings.model,
+        model: effectiveModel,
         prompt: anchoredPrompt,
         n: settings.batchCount || 1,
         size: `${width}x${height}`,
+        ratio: settings.ratio,
         referenceImages: allRefImages.length > 0 ? allRefImages : undefined,
       };
       if (liveUpstream.srefImage) req.sref = liveUpstream.srefImage;
@@ -300,46 +309,39 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     } catch (err) {
       updateJob(jobId, { status: "failed", error: err instanceof Error ? err.message : "生成失败" });
     }
-  }, [id, prompt, settings, features, addJob, updateJob, updateNode, setXyNodes]);
+  }, [id, prompt, settings, effectiveModel, features, addJob, updateJob, updateNode, setXyNodes]);
 
   const handleCancel = useCallback(() => {
     if (latestJob) updateJob(latestJob.id, { status: "cancelled" });
   }, [latestJob, updateJob]);
 
   // ── Auto-create input-image node when generation succeeds ──
+  // Every generation creates a NEW result node (never overwrites existing ones)
   const spawnInputImageNode = useCallback((imageUrl: string) => {
     const gs = useGraphStore.getState();
     const currentNode = gs.nodes.find((n) => n.id === id);
     if (!currentNode) return;
 
-    // Check if an input-image node already connected from this gen-image node
-    const existingOutputEdge = gs.edges.find(
+    // Count existing result nodes connected from this gen-image node
+    const existingResultEdges = gs.edges.filter(
       (e) => e.from === id && gs.nodes.some((n) => n.id === e.to && n.type === "input-image"),
     );
-    if (existingOutputEdge) {
-      // Update existing input-image node content
-      const targetNode = gs.nodes.find((n) => n.id === existingOutputEdge.to);
-      if (targetNode) {
-        gs.updateNode(existingOutputEdge.to, { content: imageUrl });
-        setXyNodes((nds) => nds.map((n) => n.id === existingOutputEdge.to ? { ...n, data: { ...n.data, content: imageUrl } } : n));
-      }
-      return;
-    }
+    const resultIndex = existingResultEdges.length; // 0-based, so first result = 0
 
-    // Create new input-image node to the right
+    // Create new input-image node — offset downward for each additional result
     const imgDims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
     const newNodeId = uuid();
     const newNode: CanvasNode = {
       id: newNodeId,
       type: "input-image",
       x: currentNode.x + (currentNode.width || 320) + 30,
-      y: currentNode.y,
+      y: currentNode.y + resultIndex * (imgDims.h + 20),
       width: imgDims.w,
       height: imgDims.h,
       content: imageUrl,
       prompt: "",
-      nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果` : "生成结果",
-      settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl, fileName: "generated.png" },
+      nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果${resultIndex + 1}` : `生成结果${resultIndex + 1}`,
+      settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl, fileName: `generated_${resultIndex + 1}.png` },
     };
 
     gs.addNode(newNode);
@@ -358,6 +360,18 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     setXyEdges((eds) => [...eds, toXyEdge(edge)]);
   }, [id, setXyNodes, setXyEdges]);
 
+  // ── Prompt presets: quick-fill buttons ──
+  const PROMPT_PRESETS = [
+    { key: "multi-view", label: "多视图", text: "请生成这个角色的四视图，按照正视图、背视图、左侧视图和右侧视图排列，纯灰色背景，图片中不得出现任何编号、文字标注、中英文字符或水印。" },
+    { key: "3d-render", label: "3D渲染", text: "去掉背景，渲染图中角色为3d写实风格，细腻的皮肤，明亮，高清，人物材质清晰，纯灰色背景，虚幻引擎5.5，电影级质感。" },
+    { key: "scene-angle", label: "场景角度", text: "根据图片场景生成一张9宫格场景的不同角度展示，通过不同角度展示场景。要求电影级CG风格。" },
+  ] as const;
+
+  const handlePresetPrompt = useCallback((text: string) => {
+    updateSettings({ localPrompt: text, isAutoPrompt: false });
+    setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: text } } : n));
+  }, [id, updateSettings, setXyNodes]);
+
   const s = (base: Record<string, string>) => ({
     background: isDark ? "#27272a" : "#f4f4f5",
     borderColor: isDark ? "#3f3f46" : "#d4d4d8",
@@ -365,35 +379,10 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     ...base,
   });
 
-  if (isCollapsed) {
-    return (
-      <div
-        className={`rounded-lg border shadow-lg transition-shadow ${selected ? "shadow-blue-500/30 border-blue-500 ring-2 ring-blue-500/40" : isDark ? "border-zinc-700" : "border-zinc-300"}`}
-        style={{ background: isDark ? "#18181b" : "#ffffff", minWidth: 160 }}
-      >
-        <Handle type="target" position={Position.Left} id="default" style={{ width: 8, height: 8, background: isDark ? "#52525b" : "#a1a1aa", border: `2px solid ${isDark ? "#3f3f46" : "#d4d4d8"}`, left: -4 }} />
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer"
-          style={{ background: isDark ? "#27272a" : "#f4f4f5" }}
-          onClick={() => updateSettings({ isCollapsed: false })}
-        >
-          <span className="text-xs font-medium" style={{ color: isDark ? "#f4f4f5" : "#18181b" }}>
-            生成图片
-          </span>
-          {isRunning && <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-          {hasResult && <span className="text-[10px] text-green-400">完成</span>}
-          {referenceImages.length > 0 && <span className="text-[10px] px-1 py-0.5 rounded" style={{ background: isDark ? "#2e1065" : "#f3e8ff", color: isDark ? "#a78bfa" : "#7c3aed" }}>参{referenceImages.length}</span>}
-          <span className="text-[10px] ml-auto" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>展开</span>
-        </div>
-        <Handle type="source" position={Position.Right} id="default" style={{ width: 8, height: 8, background: isDark ? "#52525b" : "#a1a1aa", border: `2px solid ${isDark ? "#3f3f46" : "#d4d4d8"}`, right: -4 }} />
-      </div>
-    );
-  }
-
   return (
     <BaseNode id={id} type="gen-image" selected={selected}>
-      {/* Header toolbar: sync + compact + collapse */}
-      <div className="flex items-center justify-end gap-1 -mt-1 mb-1">
+      {/* Header toolbar: sync + preset prompts */}
+      <div className="flex items-center gap-1 -mt-1 mb-1">
         {!isAutoPrompt && upstreamMergedText && (
           <button
             type="button"
@@ -405,29 +394,29 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
             ↻同步
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => updateSettings({ compactImageWidget: !isCompact })}
-          className="text-[9px] px-1 py-0.5 rounded"
-          style={{ color: isDark ? "#71717a" : "#a1a1aa" }}
-          title={isCompact ? "展开预览" : "紧凑预览"}
-        >
-          {isCompact ? "▣" : "▢"}
-        </button>
-        <button
-          type="button"
-          onClick={() => updateSettings({ isCollapsed: true })}
-          className="text-[9px] px-1 py-0.5 rounded"
-          style={{ color: isDark ? "#71717a" : "#a1a1aa" }}
-          title="折叠"
-        >
-          ▽
-        </button>
+        <div className="flex gap-1 ml-auto">
+          {PROMPT_PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => handlePresetPrompt(p.text)}
+              className="text-[9px] px-1.5 py-0.5 rounded border nodrag"
+              style={{
+                borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+                background: isDark ? "#27272a" : "#f4f4f5",
+                color: isDark ? "#e4e4e7" : "#18181b",
+              }}
+              title={p.text}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Model selector */}
       <select
-        value={settings.model}
+        value={effectiveModel}
         onChange={(e) => updateSettings({ model: e.target.value })}
         className="w-full text-[11px] px-1.5 py-1 rounded border outline-none mb-1.5"
         style={s({})}

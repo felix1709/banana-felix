@@ -53,6 +53,7 @@ export interface ImageGenerateRequest {
   prompt: string;
   n?: number;
   size?: string;
+  ratio?: string;
   quality?: string;
   style?: string;
   output_format?: string;
@@ -87,7 +88,27 @@ export async function generateImage(req: ImageGenerateRequest): Promise<TaskResp
   if (req.referenceImage) refImages.push(req.referenceImage);
   if (req.referenceImages) refImages.push(...req.referenceImages);
 
-  // Build request body — gpt-image-2 uses /v1/images/generations with image[] array
+  const isGemini = isGeminiImageModel(req.model);
+
+  console.log(`[Image Gen] model=${req.model} size=${req.size} ratio=${req.ratio ?? "N/A"} n=${req.n} refImages=${refImages.length} gemini=${isGemini}`);
+
+  // ════════════════════════════════════════════════════════════════
+  // Route 1: Gemini models → /v1/chat/completions (with multimodal)
+  // These models are NOT supported by the proxy's /v1/images/generations
+  // ════════════════════════════════════════════════════════════════
+  if (isGemini) {
+    return await generateImageGemini(req, refImages);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // Route 2: Non-Gemini models (Imagen, GPT, Flux, etc.)
+  // ════════════════════════════════════════════════════════════════
+  return await generateImageStandard(req, refImages);
+}
+
+// ── Route 2: Standard image generation (Imagen, GPT, Flux, etc.) ──
+async function generateImageStandard(req: ImageGenerateRequest, refImages: string[]): Promise<TaskResponse> {
+  // Build standard request body (NO 'image' param — many proxies reject it)
   const body: Record<string, unknown> = {
     model: req.model,
     prompt: req.prompt,
@@ -99,15 +120,20 @@ export async function generateImage(req: ImageGenerateRequest): Promise<TaskResp
   if (req.output_format) body.output_format = req.output_format;
   if (req.moderation) body.moderation = req.moderation;
 
-  // gpt-image-2 format: image is an array of { type: "input_image", image_url: "..." }
+  // ── When reference images exist, try /v1/images/edits FIRST (FormData) ──
   if (refImages.length > 0) {
-    body.image = refImages.map((url) => ({
-      type: "input_image",
-      image_url: url,
-    }));
+    try {
+      console.log(`[Standard] Attempt: /v1/images/edits (with ${refImages.length} ref images via FormData)`);
+      return await generateImageViaEdits(req, refImages);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(`[Standard] /v1/images/edits FAILED: ${errMsg.slice(0, 200)}`);
+    }
   }
 
+  // ── Standard generation via /v1/images/generations ──
   try {
+    console.log(`[Standard] Attempt: /v1/images/generations`);
     const result = await apiRequest<OpenAIImageResponse | TaskResponse>({
       method: "POST",
       path: "/v1/images/generations",
@@ -118,20 +144,16 @@ export async function generateImage(req: ImageGenerateRequest): Promise<TaskResp
       const first = result.data[0];
       const imageUrl = first?.url
         || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : "");
+      console.log(`[Standard] /v1/images/generations SUCCEEDED`);
       return { taskId: "", status: "succeeded", imageUrl };
     }
 
     return result as TaskResponse;
   } catch (err) {
-    // Fallback 1: try /v1/images/edits with FormData (for APIs that don't support image[] in generations)
-    if (refImages.length > 0) {
-      try {
-        return await generateImageViaEdits(req, refImages);
-      } catch {
-        // Fall through to next fallback
-      }
-    }
-    // Fallback 2: try /api/v1/image/generate — include images as array
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.log(`[Standard] /v1/images/generations FAILED: ${errMsg.slice(0, 200)}`);
+
+    // ── Fallback: /api/v1/image/generate ──
     try {
       const fallbackBody: Record<string, unknown> = {
         model: req.model,
@@ -157,9 +179,278 @@ export async function generateImage(req: ImageGenerateRequest): Promise<TaskResp
   }
 }
 
-async function generateImageViaEdits(req: ImageGenerateRequest, refImages: string[]): Promise<TaskResponse> {
-  const { baseUrl, apiKey } = useWorkspaceStore.getState();
-  if (!baseUrl) throw new Error("API 地址未配置");
+// ── Route 1: Gemini image generation ──
+async function generateImageGemini(req: ImageGenerateRequest, refImages: string[]): Promise<TaskResponse> {
+  const geminiBaseUrl = useWorkspaceStore.getState().geminiBaseUrl;
+  const geminiApiKey = useWorkspaceStore.getState().geminiApiKey;
+  const defaultBaseUrl = useWorkspaceStore.getState().baseUrl;
+  const opts = geminiBaseUrl
+    ? { overrideBaseUrl: geminiBaseUrl, overrideApiKey: geminiApiKey || undefined }
+    : {};
+
+  // Build URLs to try — geminiBaseUrl first (if configured), then default
+  const urlsToTry: Array<{ url: string; key: string; label: string }> = [];
+  if (geminiBaseUrl) {
+    urlsToTry.push({ url: geminiBaseUrl, key: geminiApiKey || "", label: "geminiBaseUrl" });
+  }
+  if (defaultBaseUrl && defaultBaseUrl !== geminiBaseUrl) {
+    urlsToTry.push({ url: defaultBaseUrl, key: useWorkspaceStore.getState().apiKey, label: "defaultBaseUrl" });
+  }
+  if (urlsToTry.length === 0) {
+    throw new Error("API 地址未配置，请先在 API 设置中配置地址");
+  }
+
+  // ── Attempt 1: /v1/images/edits with FormData (ref images + size in same request) ──
+  // This endpoint sends BOTH reference images (as file attachments) AND size param
+  // If the proxy supports Gemini here, both bugs are fixed at once
+  for (const { url, key, label } of urlsToTry) {
+    try {
+      console.log(`[Gemini] Attempt edits: /v1/images/edits (${label}, refImages=${refImages.length}, size=${req.size})`);
+      return await generateImageViaEdits(req, refImages, { overrideBaseUrl: url, overrideApiKey: key || undefined });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(`[Gemini] /v1/images/edits on ${label} FAILED: ${errMsg.slice(0, 150)}`);
+    }
+  }
+
+  // ── Attempt 2: /v1/images/generations on geminiBaseUrl (if configured) ──
+  if (geminiBaseUrl) {
+    try {
+      const body: Record<string, unknown> = {
+        model: req.model,
+        prompt: req.prompt,
+        n: req.n ?? 1,
+        size: req.size ?? "1024x1024",
+      };
+
+      console.log(`[Gemini] Attempt generations: /v1/images/generations (geminiBaseUrl, no ref images, size=${req.size})`);
+      const result = await apiRequest<OpenAIImageResponse | TaskResponse>({
+        method: "POST",
+        path: "/v1/images/generations",
+        body,
+        ...opts,
+      });
+
+      if ("data" in result && Array.isArray(result.data)) {
+        const first = result.data[0];
+        const imageUrl = first?.url
+          || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : "");
+        console.log(`[Gemini] /v1/images/generations SUCCEEDED (size param works!)`);
+        return { taskId: "", status: "succeeded", imageUrl };
+      }
+
+      const raw = result as unknown as Record<string, unknown>;
+      const taskId = String(raw.taskId || raw.id || raw.task_id || "");
+      if (taskId) {
+        console.log(`[Gemini] /v1/images/generations returned task: ${taskId}`);
+        return result as TaskResponse;
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(`[Gemini] /v1/images/generations FAILED: ${errMsg.slice(0, 150)}`);
+    }
+  }
+
+  // ── Attempt 3: /v1/chat/completions (multimodal — ref images work, size is prompt-based) ──
+  try {
+    console.log(`[Gemini] Attempt chat: /v1/chat/completions (multimodal, refImages=${refImages.length}, size=${req.size})`);
+    return await generateImageViaChatCompletions(req, opts);
+  } catch (chatErr) {
+    const chatErrMsg = chatErr instanceof Error ? chatErr.message : String(chatErr);
+    console.log(`[Gemini] /v1/chat/completions FAILED: ${chatErrMsg.slice(0, 150)}`);
+  }
+
+  throw new Error(`Gemini 图片生成失败。建议：1) 使用 Imagen 模型（参考图+比例均正常）；2) 联系代理团队让 /v1/images/edits 支持 Gemini 模型。`);
+}
+
+// ── Helper: derive aspect ratio string from size (e.g., "1280x720" → "16:9") ──
+function deriveAspectRatio(size?: string): string | undefined {
+  if (!size) return undefined;
+  const parts = size.split("x").map(Number);
+  if (parts.length !== 2 || parts.some(isNaN)) return undefined;
+  const [w, h] = parts;
+  const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+  const d = gcd(w, h);
+  return `${w / d}:${h / d}`;
+}
+
+// ── Helper: detect Gemini image models by ID ──
+function isGeminiImageModel(modelId: string): boolean {
+  const lower = modelId.toLowerCase();
+  return lower.startsWith("gemini-") && lower.includes("-image");
+}
+
+// ── Gemini image generation via /v1/chat/completions ──
+async function generateImageViaChatCompletions(
+  req: ImageGenerateRequest,
+  opts: { overrideBaseUrl?: string; overrideApiKey?: string },
+): Promise<TaskResponse> {
+  const refImages: string[] = [];
+  if (req.referenceImage) refImages.push(req.referenceImage);
+  if (req.referenceImages) refImages.push(...req.referenceImages);
+
+  // Build multimodal content parts
+  const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+
+  // Reference images first
+  for (const url of refImages) {
+    contentParts.push({ type: "image_url", image_url: { url } });
+  }
+
+  // Build user prompt
+  const userPrompt = req.prompt || "";
+
+  // Then the text prompt
+  contentParts.push({ type: "text", text: userPrompt });
+
+  // Build system message with aspect ratio enforcement
+  const aspectRatio = req.ratio || deriveAspectRatio(req.size) || "1:1";
+  const systemParts: string[] = [
+    "You are an image generation assistant. You MUST generate images.",
+  ];
+  if (aspectRatio !== "1:1") {
+    systemParts.push(`CRITICAL REQUIREMENT: The generated image MUST have an exact ${aspectRatio} aspect ratio (width:height). For example, 16:9 means the image is wide (landscape), 9:16 means it is tall (portrait). Do NOT generate a square image. Do NOT ignore this ratio.`);
+  }
+  if (req.size) {
+    systemParts.push(`Target resolution: ${req.size} pixels.`);
+  }
+
+  // Build the request body — try multiple parameter formats for proxy compatibility
+  const body: Record<string, unknown> = {
+    model: req.model,
+    messages: [
+      // System message for aspect ratio enforcement
+      {
+        role: "system",
+        content: systemParts.join(" "),
+      },
+      // User message with prompt + reference images
+      {
+        role: "user",
+        content: contentParts.length > 1 ? contentParts : userPrompt,
+      },
+    ],
+    // Pass through size/n/quality/style for proxies that support them
+    n: req.n ?? 1,
+    size: req.size ?? "1024x1024",
+    // Various aspect ratio field names for different proxy compatibility
+    aspect_ratio: aspectRatio,
+    aspectRatio: aspectRatio,
+    // Google native Gemini API format
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      aspectRatio: aspectRatio,
+    },
+  };
+  if (req.quality) body.quality = req.quality;
+  if (req.style) body.style = req.style;
+
+  // Debug: log key parameters
+  console.log(`[Gemini Image] model=${req.model} ratio=${req.ratio ?? "N/A"} aspectRatio=${aspectRatio} size=${req.size} n=${req.n} quality=${req.quality ?? "N/A"} style=${req.style ?? "N/A"} refImages=${refImages.length} promptLen=${userPrompt.length}`);
+
+  const result = await apiRequest<ChatCompletionResponse | TaskResponse>({
+    method: "POST",
+    path: "/v1/chat/completions",
+    body,
+    ...opts,
+  });
+
+  // ── Try to extract image from various response formats ──
+
+  // Format 1: Standard OpenAI image generation shape (some proxies return this from chat endpoint)
+  if ("data" in result && Array.isArray((result as Record<string, unknown>).data)) {
+    const data = (result as Record<string, unknown>).data as Array<{ url?: string; b64_json?: string }>;
+    const first = data[0];
+    const imageUrl = first?.url || (first?.b64_json ? `data:image/png;base64,${first.b64_json}` : "");
+    if (imageUrl) return { taskId: "", status: "succeeded", imageUrl };
+  }
+
+  // Format 2: Chat completions with multimodal content in choices[0].message.content
+  if ("choices" in result && result.choices?.[0]?.message?.content) {
+    const content = result.choices[0].message.content;
+
+    // Content is an array of multimodal parts
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (typeof part === "object" && part !== null) {
+          // OpenAI-style: { type: "image_url", image_url: { url: "..." } }
+          const imgPart = part as Record<string, unknown>;
+          if (imgPart.type === "image_url" && typeof imgPart.image_url === "object" && imgPart.image_url !== null) {
+            const url = (imgPart.image_url as Record<string, unknown>).url as string | undefined;
+            if (url) return { taskId: "", status: "succeeded", imageUrl: url };
+          }
+          // Google-style inline_data: { type: "inline_data", data: "...", mime_type: "..." }
+          if (imgPart.type === "inline_data" && typeof imgPart.data === "string") {
+            const mime = (typeof imgPart.mime_type === "string" ? imgPart.mime_type : "image/png");
+            return { taskId: "", status: "succeeded", imageUrl: `data:${mime};base64,${imgPart.data}` };
+          }
+        }
+      }
+    }
+
+    // Content is a string — may contain image URL or base64 data
+    if (typeof content === "string") {
+      // Try parsing as JSON array of multimodal parts
+      try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          for (const part of parsed) {
+            if (typeof part === "object" && part !== null) {
+              const p = part as Record<string, unknown>;
+              if (p.type === "image_url" && typeof p.image_url === "object" && p.image_url !== null) {
+                const url = (p.image_url as Record<string, unknown>).url as string | undefined;
+                if (url) return { taskId: "", status: "succeeded", imageUrl: url };
+              }
+              if (p.type === "inline_data" && typeof p.data === "string") {
+                const mime = (typeof p.mime_type === "string" ? p.mime_type : "image/png");
+                return { taskId: "", status: "succeeded", imageUrl: `data:${mime};base64,${p.data}` };
+              }
+            }
+          }
+        }
+      } catch {
+        // Not JSON — check for image URLs in the text
+      }
+
+      // Check for markdown image syntax: ![alt](url)
+      const mdMatch = content.match(/!\[.*?\]\((data:image\/[^;]+;base64,[^\s)]+|https?:\/\/[^\s)]+)\)/);
+      if (mdMatch?.[1]) return { taskId: "", status: "succeeded", imageUrl: mdMatch[1] };
+
+      // Check for bare data:image URL
+      const dataUrlMatch = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]{100,}/);
+      if (dataUrlMatch) return { taskId: "", status: "succeeded", imageUrl: dataUrlMatch[0] };
+
+      // Check for bare https:// image URL
+      const httpsMatch = content.match(/https?:\/\/[^\s"'<>]+\.(png|jpg|jpeg|webp|gif)[^\s"'<>]*/i);
+      if (httpsMatch) return { taskId: "", status: "succeeded", imageUrl: httpsMatch[0] };
+
+      // Check for any URL-like pattern in content
+      const urlMatch = content.match(/https?:\/\/[^\s"'<>]+/);
+      if (urlMatch) return { taskId: "", status: "succeeded", imageUrl: urlMatch[0] };
+    }
+  }
+
+  // Format 3: Async task response (some proxies return taskId for long-running generation)
+  const raw = result as unknown as Record<string, unknown>;
+  const effectiveTaskId = String(raw.taskId || raw.id || raw.task_id || "");
+  if (effectiveTaskId) {
+    return { taskId: effectiveTaskId, status: "pending" };
+  }
+
+  // No image found — include diagnostic info in the error
+  const snippet = JSON.stringify(result).slice(0, 300);
+  return { taskId: "", status: "failed", error: `Gemini 未返回图片内容 (响应: ${snippet})` };
+}
+
+async function generateImageViaEdits(
+  req: ImageGenerateRequest,
+  refImages: string[],
+  opts?: { overrideBaseUrl?: string; overrideApiKey?: string },
+): Promise<TaskResponse> {
+  const store = useWorkspaceStore.getState();
+  const effectiveUrl = opts?.overrideBaseUrl ?? store.baseUrl;
+  const effectiveKey = opts?.overrideApiKey ?? store.apiKey;
+  if (!effectiveUrl) throw new Error("API 地址未配置");
 
   const formData = new FormData();
   formData.append("model", req.model);
@@ -177,10 +468,10 @@ async function generateImageViaEdits(req: ImageGenerateRequest, refImages: strin
   }
 
   const headers: Record<string, string> = {};
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (effectiveKey) headers["Authorization"] = `Bearer ${effectiveKey}`;
 
   const httpFetch = await getHttpFetch();
-  const response = await httpFetch(`${baseUrl}/v1/images/edits`, {
+  const response = await httpFetch(`${effectiveUrl}/v1/images/edits`, {
     method: "POST",
     headers,
     body: formData,
@@ -230,6 +521,47 @@ export interface VideoGenerateRequest {
   images?: string[];
 }
 
+export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<string, unknown> {
+  const firstFrameImage = req.startImage || req.referenceImageUrl || undefined;
+  const body: Record<string, unknown> = {
+    ...req,
+    negative_prompt: req.negativePrompt || undefined,
+    duration: req.duration,
+    duration_seconds: req.duration,
+    fps: req.fps,
+    resolution: req.resolution,
+    seed: req.seed,
+    ratio: req.ratio || "16:9",
+    size: req.ratio || "16:9",
+    aspect_ratio: req.ratio || "16:9",
+    generateAudio: req.generateAudio,
+    generate_audio: req.generateAudio,
+    audio: req.generateAudio,
+    smartDuration: req.smartDuration,
+    smart_duration: req.smartDuration,
+    referenceMode: req.referenceMode,
+    reference_mode: req.referenceMode,
+    image_url: firstFrameImage,
+    first_frame_image: firstFrameImage,
+    start_image: firstFrameImage,
+    endImage: req.endImage || undefined,
+    end_image: req.endImage || undefined,
+    lastframe_image: req.endImage || undefined,
+    last_frame_image: req.endImage || undefined,
+    audio_url: req.referenceAudioUrl || undefined,
+    video_url: req.referenceVideoUrl || undefined,
+    images: req.images && req.images.length > 0 ? req.images : undefined,
+    image_urls: req.images && req.images.length > 0 ? req.images : undefined,
+  };
+
+  for (const key of Object.keys(body)) {
+    if (body[key] === undefined || body[key] === "") {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
 export async function generateVideo(req: VideoGenerateRequest): Promise<TaskResponse> {
   const videoBaseUrl = useWorkspaceStore.getState().videoBaseUrl;
   const videoApiKey = useWorkspaceStore.getState().videoApiKey;
@@ -237,22 +569,7 @@ export async function generateVideo(req: VideoGenerateRequest): Promise<TaskResp
     ...(videoBaseUrl ? { overrideBaseUrl: videoBaseUrl, overrideApiKey: videoApiKey || undefined } : {}),
   };
 
-  // Build body with compatibility aliases for one-api/new-api proxies
-  const body: Record<string, unknown> = {
-    ...req,
-    // one-api uses "size" for aspect ratio (same as OpenAI image API)
-    size: req.ratio || "16:9",
-    // Seedance/Volcengine uses "image_url" for reference/first-frame image
-    image_url: req.startImage || req.referenceImageUrl || undefined,
-    // Last frame image for Seedance
-    lastframe_image: req.endImage || undefined,
-    // Audio reference URL
-    audio_url: req.referenceAudioUrl || undefined,
-    // Video reference URL
-    video_url: req.referenceVideoUrl || undefined,
-    // Some proxies use "audio" instead of "generateAudio"
-    audio: req.generateAudio,
-  };
+  const body = buildVideoGenerationBody(req);
 
   // Try video endpoint first, then fall back to image endpoint
   try {
@@ -319,25 +636,36 @@ async function generateVideoViaImageEndpoint(
     prompt: req.prompt,
     n: 1,
     size: req.ratio || "16:9",
+    aspect_ratio: req.ratio || "16:9",
+    ratio: req.ratio || "16:9",
   };
   if (req.negativePrompt) body.negative_prompt = req.negativePrompt;
   if (req.duration) body.duration = req.duration;
+  if (req.duration) body.duration_seconds = req.duration;
   if (req.fps) body.fps = req.fps;
   if (req.resolution) body.resolution = req.resolution;
   if (req.seed !== undefined) body.seed = req.seed;
   if (req.startImage) body.startImage = req.startImage;
+  if (req.startImage) body.start_image = req.startImage;
+  if (req.startImage) body.first_frame_image = req.startImage;
   if (req.endImage) body.endImage = req.endImage;
+  if (req.endImage) body.end_image = req.endImage;
   if (req.generateAudio !== undefined) body.generateAudio = req.generateAudio;
+  if (req.generateAudio !== undefined) body.generate_audio = req.generateAudio;
   if (req.smartDuration !== undefined) body.smartDuration = req.smartDuration;
+  if (req.smartDuration !== undefined) body.smart_duration = req.smartDuration;
   if (req.referenceMode) body.referenceMode = req.referenceMode;
+  if (req.referenceMode) body.reference_mode = req.referenceMode;
   // Reference materials
   if (req.referenceImageUrl) body.image_url = req.referenceImageUrl;
   if (req.referenceVideoUrl) body.video_url = req.referenceVideoUrl;
   if (req.referenceAudioUrl) body.audio_url = req.referenceAudioUrl;
   if (req.images && req.images.length > 0) body.images = req.images;
+  if (req.images && req.images.length > 0) body.image_urls = req.images;
   // Compatibility aliases
   if (req.startImage || req.referenceImageUrl) body.image_url = req.startImage || req.referenceImageUrl;
   if (req.endImage) body.lastframe_image = req.endImage;
+  if (req.endImage) body.last_frame_image = req.endImage;
   if (req.generateAudio !== undefined) body.audio = req.generateAudio;
 
   const result = await apiRequest<{ data?: Array<{ url?: string; b64_json?: string }>; taskId?: string; status?: string; videoUrl?: string; imageUrl?: string; error?: string }>({
@@ -381,7 +709,15 @@ export interface VideoAnalyzeRequest {
 interface ChatCompletionResponse {
   id: string;
   choices?: Array<{
-    message?: { content?: string };
+    message?: {
+      content?: string | Array<{
+        type: string;
+        text?: string;
+        image_url?: { url: string };
+        data?: string;
+        mime_type?: string;
+      }>;
+    };
     finish_reason?: string;
   }>;
   taskId?: string;
@@ -411,10 +747,16 @@ export async function analyzeVideo(req: VideoAnalyzeRequest): Promise<{ taskId: 
 
   // Sync response: direct chat completion
   if ("choices" in result && result.choices?.[0]?.message?.content) {
+    const content = result.choices[0].message.content;
+    const text = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.filter((p): p is { type: string; text?: string } => typeof p === "object" && "text" in p).map((p) => p.text ?? "").join("\n")
+        : String(content);
     return {
       taskId: "",
       status: "succeeded",
-      result: result.choices[0].message.content,
+      result: text,
     };
   }
 
@@ -823,6 +1165,28 @@ export async function testConnection(): Promise<{ ok: boolean; error?: string; m
       }
     }
 
+    // Also fetch models from Gemini URL if configured
+    const { geminiBaseUrl, geminiApiKey } = useWorkspaceStore.getState();
+    if (geminiBaseUrl) {
+      try {
+        const geminiHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        if (geminiApiKey) geminiHeaders["Authorization"] = `Bearer ${geminiApiKey}`;
+        const geminiResponse = await httpFetch(`${geminiBaseUrl}/v1/models`, { headers: geminiHeaders });
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const geminiModelsList = parseModelsResponse(geminiData).map((m) => ({
+            ...m,
+            type: m.type !== "unknown" ? m.type : "image" as const,
+          }));
+          const existingIds = new Set(models.map((m) => m.id));
+          const uniqueGeminiModels = geminiModelsList.filter((m) => !existingIds.has(m.id));
+          models = [...models, ...uniqueGeminiModels];
+        }
+      } catch {
+        // Gemini URL fetch failed — non-fatal
+      }
+    }
+
     return { ok: true, models };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "连接失败" };
@@ -855,8 +1219,8 @@ function classifyModel(id: string): "image" | "video" | "chat" | "unknown" {
   const chatKeywords = ["gpt-4", "gpt-3", "chat", "claude", "llama", "qwen", "gemini-pro", "gemini-flash", "deepseek", "yi", "mistral", "codestral"];
 
   if (videoKeywords.some((k) => lower.includes(k))) return "video";
-  if (chatKeywords.some((k) => lower.includes(k))) return "chat";
   if (imageKeywords.some((k) => lower.includes(k))) return "image";
+  if (chatKeywords.some((k) => lower.includes(k))) return "chat";
   // Models not matching any known keyword default to "image" — most API models are generation models
   return "image";
 }

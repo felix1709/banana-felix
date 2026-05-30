@@ -6,7 +6,6 @@ import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useGraphStore } from "../../../stores/graphStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
-import { useGenerationPoll } from "../../../hooks/useGenerationPoll";
 import { generateVideo } from "../../../services/apiService";
 import { VIDEO_MODELS, getModelById } from "../../../types/model";
 import type { GenVideoSettings } from "../../../types/settings";
@@ -16,6 +15,8 @@ import { parseMentions, getMentionableNodes } from "../../../hooks/useMentionPar
 import { buildAnchorText } from "../../../hooks/useAnchorText";
 import { NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasEdge, NodeType } from "../../../types/node";
+import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
+import { buildVideoOutputNodeAndEdge } from "./videoOutputNode";
 
 // ── Preset styles ──
 
@@ -43,7 +44,6 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   const remoteModels = useWorkspaceStore((s) => s.remoteModels);
   const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
 
-  const content = (data?.content as string) ?? "";
   const prompt = (data?.prompt as string) ?? "";
 
   // @-mention state
@@ -55,11 +55,11 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   const [durationOpen, setDurationOpen] = useState(false);
   const [assigningSlot, setAssigningSlot] = useState<"start" | "end" | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [logExpanded, setLogExpanded] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const mentionableNodes = useMemo(
     () => getMentionableNodes(nodes, id).filter(
-      (n) => ["input-image", "gen-image", "video-input", "audio-input"].includes(n.nodeType),
+      (n) => ["input-image", "gen-image", "video-input", "gen-video", "audio-input", "gen-music", "text-node"].includes(n.nodeType),
     ),
     [nodes, id],
   );
@@ -195,22 +195,6 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     setAssigningSlot(null);
   }, [updateSettings]);
 
-  // Jobs & polling
-  const allJobs = useJobStore((s) => s.jobs);
-  const latestJob = useMemo(() => {
-    const j = allJobs.filter((j) => j.nodeId === id);
-    return j.length > 0 ? j.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : undefined;
-  }, [allJobs, id]);
-
-  useGenerationPoll(id);
-
-  const [elapsed, setElapsed] = useState("0.0");
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const isRunning = latestJob?.status === "pending" || latestJob?.status === "running";
-  const hasResult = !!content && (content.startsWith("http") || content.startsWith("data:"));
-  const isVideo = hasResult && /\.(mp4|webm)/.test(content);
-
   const videoModelOptions = useMemo(() => {
     const dynamic = remoteModels.filter((m) => m.type === "video");
     if (dynamic.length > 0) {
@@ -220,18 +204,6 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   }, [remoteModels]);
 
   const modelDef = getModelById(settings.model);
-
-  useEffect(() => {
-    if (isRunning) {
-      const start = Date.now();
-      timerRef.current = setInterval(() => setElapsed(((Date.now() - start) / 1000).toFixed(1)), 100);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
-      setElapsed("0.0");
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isRunning]);
 
   // Lookup assigned frame ref details
   const startFrameNode = useMemo(() => {
@@ -248,6 +220,12 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     // ── 1. Read LATEST settings from store (never use stale closure) ──
     const liveNode = useGraphStore.getState().nodes.find((n) => n.id === id);
     const liveSettings = (liveNode?.settings ?? settings) as GenVideoSettings;
+
+    if (!liveNode) {
+      setValidationError("未找到当前视频生成节点");
+      setTimeout(() => setValidationError(null), 3000);
+      return;
+    }
 
     // Parameter validation
     if (!liveSettings.model) {
@@ -270,7 +248,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
     for (const edge of incoming) {
       const src = liveNodes.find((n) => n.id === edge.from);
-      if (!src || !src.content) continue;
+      if (!src || (!src.content && !src.prompt)) continue;
 
       const handle = edge.toPort ?? "default";
       if (handle === "veo_start") {
@@ -279,19 +257,20 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         endImage = src.content;
       } else if (src.type === "input-image" || src.type === "gen-image") {
         refImages.push(src.content);
-      } else if (src.type === "video-input") {
+      } else if (src.type === "video-input" || src.type === "gen-video") {
         refVideoUrl = src.content;
-      } else if (src.type === "audio-input") {
+      } else if (src.type === "audio-input" || src.type === "gen-music") {
         refAudioUrl = src.content;
       } else {
+        const textPrompt = src.prompt || src.content;
         upstreamPrompt = upstreamPrompt
-          ? `${upstreamPrompt}\n${src.prompt || src.content}`
-          : (src.prompt || src.content);
+          ? `${upstreamPrompt}\n${textPrompt}`
+          : textPrompt;
       }
     }
 
     // ── 3. Resolve @-mentioned nodes → collect their media URLs too ──
-    const effectivePrompt = prompt || upstreamPrompt;
+    const effectivePrompt = [upstreamPrompt, prompt].filter(Boolean).join("\n");
     if (!effectivePrompt && !startImage && !endImage && refImages.length === 0 && !refVideoUrl) {
       setValidationError("请输入提示词或指定参考素材");
       setTimeout(() => setValidationError(null), 3000);
@@ -302,7 +281,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     const mentionResults = parseMentions(effectivePrompt, liveNodes);
     for (const m of mentionResults) {
       const mentionedNode = liveNodes.find((n) => n.id === m.nodeId);
-      if (!mentionedNode || !mentionedNode.content) continue;
+      if (!mentionedNode || (!mentionedNode.content && !mentionedNode.prompt)) continue;
 
       if (mentionedNode.type === "input-image" || mentionedNode.type === "gen-image") {
         if (!refImages.includes(mentionedNode.content)) {
@@ -310,8 +289,13 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         }
       } else if (mentionedNode.type === "video-input" || mentionedNode.type === "gen-video") {
         if (!refVideoUrl) refVideoUrl = mentionedNode.content;
-      } else if (mentionedNode.type === "audio-input") {
+      } else if (mentionedNode.type === "audio-input" || mentionedNode.type === "gen-music") {
         if (!refAudioUrl) refAudioUrl = mentionedNode.content;
+      } else if (mentionedNode.type === "text-node") {
+        const textNodePrompt = mentionedNode.prompt || mentionedNode.content;
+        if (textNodePrompt && !upstreamPrompt.includes(textNodePrompt)) {
+          upstreamPrompt = upstreamPrompt ? `${upstreamPrompt}\n${textNodePrompt}` : textNodePrompt;
+        }
       }
     }
 
@@ -325,11 +309,27 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       if (endNode?.content) endImage = endNode.content;
     }
 
-    const anchoredPrompt = buildAnchorText(mentionResults, effectivePrompt);
+    const finalPrompt = [upstreamPrompt, prompt].filter(Boolean).join("\n");
+    const anchoredPrompt = buildAnchorText(mentionResults, finalPrompt);
     const referenceImageUrl = refImages[0] || "";
 
     // ── 5. Build and send request with ALL parameters ──
     const jobId = uuid();
+    setSubmitting(true);
+
+    const existingOutputCount = liveEdges.filter(
+      (e) => e.from === id && liveNodes.some((n) => n.id === e.to && n.type === "video-input"),
+    ).length;
+    const { node: outputNode, edge: outputEdge } = buildVideoOutputNodeAndEdge({
+      sourceNode: liveNode,
+      existingOutputCount,
+    });
+    const graph = useGraphStore.getState();
+    graph.addNode(outputNode);
+    graph.addEdge(outputEdge);
+    setXyNodes((nds) => [...nds, toXyNode(outputNode)]);
+    setXyEdges((eds) => [...eds, toXyEdge(outputEdge)]);
+
     try {
       const videoBaseUrl = useWorkspaceStore.getState().videoBaseUrl;
       const videoApiKey = useWorkspaceStore.getState().videoApiKey;
@@ -355,16 +355,16 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       };
 
       // Log the full request body for debugging
-      const logBody = { ...reqBody };
-      if (logBody.startImage) logBody.startImage = logBody.startImage.slice(0, 40) + "...";
-      if (logBody.endImage) logBody.endImage = logBody.endImage.slice(0, 40) + "...";
-      if (logBody.referenceImageUrl) logBody.referenceImageUrl = logBody.referenceImageUrl.slice(0, 40) + "...";
-      if (logBody.referenceVideoUrl) logBody.referenceVideoUrl = logBody.referenceVideoUrl.slice(0, 40) + "...";
-      if (logBody.referenceAudioUrl) logBody.referenceAudioUrl = logBody.referenceAudioUrl.slice(0, 40) + "...";
-      if (logBody.images) logBody.images = logBody.images.map((u: string) => u.slice(0, 40) + "...");
+      const logBody: Record<string, unknown> = { ...reqBody };
+      if (typeof logBody.startImage === "string") logBody.startImage = logBody.startImage.slice(0, 40) + "...";
+      if (typeof logBody.endImage === "string") logBody.endImage = logBody.endImage.slice(0, 40) + "...";
+      if (typeof logBody.referenceImageUrl === "string") logBody.referenceImageUrl = logBody.referenceImageUrl.slice(0, 40) + "...";
+      if (typeof logBody.referenceVideoUrl === "string") logBody.referenceVideoUrl = logBody.referenceVideoUrl.slice(0, 40) + "...";
+      if (typeof logBody.referenceAudioUrl === "string") logBody.referenceAudioUrl = logBody.referenceAudioUrl.slice(0, 40) + "...";
+      if (Array.isArray(logBody.images)) logBody.images = logBody.images.map((u: string) => u.slice(0, 40) + "...");
 
       addJob({
-        id: jobId, nodeId: id, type: "video", taskId: "", status: "pending", progress: 0, createdAt: Date.now(),
+        id: jobId, nodeId: outputNode.id, type: "video", taskId: "", status: "pending", progress: 0, createdAt: Date.now(),
         apiBaseUrl: videoBaseUrl || undefined, apiApiKey: videoApiKey || undefined,
         log: [
           `开始生成 | 模型: ${liveSettings.model} | 时长: ${liveSettings.duration}s | 比例: ${liveSettings.ratio} | 音频: ${liveSettings.generateAudio ? "开" : "关"}`,
@@ -386,8 +386,14 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       if (result.status === "succeeded" && result.videoUrl) {
         appendJobLog(jobId, "生成完成");
         updateJob(jobId, { status: "succeeded", progress: 100, resultUrl: result.videoUrl });
-        updateNode(id, { content: result.videoUrl });
-        setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, content: result.videoUrl } } : n));
+        const nextSettings = {
+          ...outputNode.settings,
+          source: "url",
+          videoUrl: result.videoUrl,
+          fileName: "generated.mp4",
+        };
+        updateNode(outputNode.id, { content: result.videoUrl, settings: nextSettings });
+        setXyNodes((nds) => nds.map((n) => n.id === outputNode.id ? { ...n, data: { ...n.data, content: result.videoUrl, settings: nextSettings } } : n));
       } else if (result.status === "failed") {
         appendJobLog(jobId, `生成失败: ${result.error || "未知错误"}`);
         updateJob(jobId, { status: "failed", error: result.error });
@@ -398,65 +404,10 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       const errMsg = err instanceof Error ? err.message : "生成失败";
       appendJobLog(jobId, `API错误: ${errMsg}`);
       updateJob(jobId, { status: "failed", error: errMsg });
+    } finally {
+      setSubmitting(false);
     }
-  }, [id, prompt, settings, addJob, updateJob, appendJobLog, updateNode, setXyNodes]);
-
-  const handleCancel = useCallback(() => {
-    if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
-      appendJobLog(latestJob.id, "用户取消生成");
-      updateJob(latestJob.id, { status: "cancelled" });
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setElapsed("0.0");
-  }, [latestJob, updateJob, appendJobLog]);
-
-  const handleDownload = useCallback(async () => {
-    if (!content) return;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const ext = isVideo ? ".mp4" : ".png";
-    const defaultName = `banana_video_${timestamp}${ext}`;
-
-    const isTauri = "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
-      try {
-        const { save } = await import("@tauri-apps/plugin-dialog");
-        const { invoke } = await import("@tauri-apps/api/core");
-
-        const filePath = await save({
-          defaultPath: defaultName,
-          filters: isVideo
-            ? [{ name: "视频", extensions: ["mp4", "webm"] }]
-            : [{ name: "图片", extensions: ["png", "jpg", "webp"] }],
-        });
-        if (!filePath) return;
-
-        // Use Rust backend to download — bypasses all CORS & JS Headers issues
-        await invoke("download_file_bypass_cors", { url: content, destPath: filePath });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setValidationError(`下载失败: ${msg}`);
-        setTimeout(() => setValidationError(null), 5000);
-      }
-    } else {
-      try {
-        const response = await fetch(content);
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = defaultName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-      } catch {
-        window.open(content, "_blank");
-      }
-    }
-  }, [content, isVideo]);
+  }, [id, prompt, settings, addJob, updateJob, appendJobLog, updateNode, setXyNodes, setXyEdges]);
 
   const border = isDark ? "#3f3f46" : "#d4d4d8";
   const fg = isDark ? "#e4e4e7" : "#18181b";
@@ -468,121 +419,12 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
   return (
     <BaseNode id={id} type="gen-video" selected={selected}>
-      {/* ── TOP: Title + Preview ── */}
+      {/* ── TOP: Title ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         <span style={{ fontSize: 14 }}>🎬</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: fg }}>视频生成</span>
         <span style={{ fontSize: 9, color: muted, marginLeft: "auto" }}>{modelDef?.label ?? settings.model}</span>
       </div>
-
-      {/* Preview area */}
-      <div style={{
-        width: "100%", borderRadius: 8, overflow: "hidden",
-        background: isDark ? "#18181b" : "#f0f0f2",
-        border: `1px solid ${border}`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        minHeight: 160, maxHeight: 200, position: "relative",
-      }}>
-        {isRunning ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 12 }}>
-            <div style={{ width: 32, height: 32, border: "3px solid #3b82f6", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-            <span style={{ fontSize: 11, color: fg, fontWeight: 500 }}>
-              {latestJob?.status === "pending" ? "排队中" : "生成中"}...
-            </span>
-            {(latestJob?.progress ?? 0) > 0 && (
-              <div style={{ width: "80%", height: 3, borderRadius: 2, background: isDark ? "#3f3f46" : "#e4e4e7", overflow: "hidden" }}>
-                <div style={{ width: `${latestJob?.progress ?? 0}%`, height: "100%", background: "#3b82f6", borderRadius: 2, transition: "width 0.3s" }} />
-              </div>
-            )}
-            <span style={{ fontSize: 9, color: muted, fontVariantNumeric: "tabular-nums" }}>
-              {elapsed}s{(() => {
-                const pct = latestJob?.progress ?? 0;
-                const sec = parseFloat(elapsed);
-                if (pct > 5 && sec > 0) {
-                  const est = Math.max(0, Math.round((sec / pct) * 100 - sec));
-                  return ` | 预计剩余 ~${est}s`;
-                }
-                return "";
-              })()}
-            </span>
-            <button type="button" onClick={handleCancel}
-              style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, border: "1px solid #ef4444", color: "#ef4444", background: "transparent", cursor: "pointer" }}>
-              取消
-            </button>
-          </div>
-        ) : latestJob?.status === "failed" ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 10, textAlign: "center" }}>
-            <span style={{ fontSize: 18 }}>❌</span>
-            <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 500 }}>生成失败</span>
-            <span style={{ fontSize: 9, color: muted, maxHeight: 36, overflow: "auto", lineHeight: 1.4, wordBreak: "break-all" }}>
-              {latestJob.error || "未知错误"}
-            </span>
-            <button type="button" onClick={handleGenerate}
-              style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, border: "1px solid #f97316", color: "#f97316", background: "transparent", cursor: "pointer" }}>
-              重试
-            </button>
-          </div>
-        ) : hasResult && isVideo ? (
-          <>
-            <video src={content}
-              style={{ width: "100%", height: "100%", objectFit: "contain", colorScheme: isDark ? "dark" : "light" }}
-              controls controlsList="nodownload" autoPlay={false} muted />
-            <button type="button" onClick={handleDownload} className="nodrag"
-              title="下载视频到本地"
-              style={{
-                position: "absolute", top: 6, right: 6, zIndex: 10, fontSize: 9, padding: "3px 8px",
-                borderRadius: 4, border: "none",
-                background: isDark ? "rgba(249,115,22,0.85)" : "rgba(249,115,22,0.9)",
-                color: "#fff", cursor: "pointer",
-                fontWeight: 500, lineHeight: 1,
-              }}>
-              ⬇ 下载
-            </button>
-          </>
-        ) : hasResult ? (
-          <>
-            <img src={content} alt="result" style={{ width: "100%", height: "100%", objectFit: "contain" }} loading="lazy" />
-            <button type="button" onClick={handleDownload} className="nodrag"
-              title="下载图片到本地"
-              style={{
-                position: "absolute", top: 6, right: 6, zIndex: 10, fontSize: 9, padding: "3px 8px",
-                borderRadius: 4, border: "none",
-                background: isDark ? "rgba(249,115,22,0.85)" : "rgba(249,115,22,0.9)",
-                color: "#fff", cursor: "pointer",
-                fontWeight: 500, lineHeight: 1,
-              }}>
-              ⬇ 下载
-            </button>
-          </>
-        ) : (
-          <span style={{ fontSize: 11, color: muted }}>暂无视频</span>
-        )}
-      </div>
-
-      {/* Generation log panel */}
-      {latestJob?.log && latestJob.log.length > 0 && (
-        <div style={{
-          marginTop: 4, padding: "4px 6px", borderRadius: 6,
-          background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-          border: `1px solid ${border}`,
-          maxHeight: logExpanded ? 100 : 22,
-          overflow: logExpanded ? "auto" : "hidden",
-          transition: "max-height 0.2s",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
-            onClick={() => setLogExpanded(!logExpanded)}>
-            <span style={{ fontSize: 8, color: muted }}>📋 日志 ({latestJob.log.length})</span>
-            <button type="button" className="nodrag" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(latestJob.log!.join("\n")); }}
-              style={{ fontSize: 8, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-              复制
-            </button>
-            <span style={{ marginLeft: "auto", fontSize: 8, color: muted }}>{logExpanded ? "▲" : "▼"}</span>
-          </div>
-          {logExpanded && latestJob.log.map((entry, i) => (
-            <div key={i} style={{ fontSize: 8, color: muted, lineHeight: 1.4, fontFamily: "monospace" }}>{entry}</div>
-          ))}
-        </div>
-      )}
 
       {/* ── MIDDLE: Reference area ── */}
       {/* Connected refs — multimodal mode shows click-to-insert chips */}
@@ -605,8 +447,8 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               {(ref.nodeType === "input-image" || ref.nodeType === "gen-image") && ref.content && (
                 <img src={ref.content} alt="" style={{ width: 12, height: 12, borderRadius: 2, objectFit: "cover" }} />
               )}
-              {ref.nodeType === "video-input" && <span style={{ fontSize: 8, color: "#f97316" }}>▶</span>}
-              {ref.nodeType === "audio-input" && <span style={{ fontSize: 8, color: "#22c55e" }}>♪</span>}
+              {(ref.nodeType === "video-input" || ref.nodeType === "gen-video") && <span style={{ fontSize: 8, color: "#f97316" }}>▶</span>}
+              {(ref.nodeType === "audio-input" || ref.nodeType === "gen-music") && <span style={{ fontSize: 8, color: "#22c55e" }}>♪</span>}
               <span style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>@{ref.nodeName}</span>
             </button>
           ))}
@@ -687,8 +529,8 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
                 {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && (
                   <img src={node.content} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: "cover" }} />
                 )}
-                {node.nodeType === "video-input" && <span style={{ fontSize: 10, color: "#f97316" }}>▶</span>}
-                {node.nodeType === "audio-input" && <span style={{ fontSize: 10, color: "#22c55e" }}>♪</span>}
+                {(node.nodeType === "video-input" || node.nodeType === "gen-video") && <span style={{ fontSize: 10, color: "#f97316" }}>▶</span>}
+                {(node.nodeType === "audio-input" || node.nodeType === "gen-music") && <span style={{ fontSize: 10, color: "#22c55e" }}>♪</span>}
                 <span style={{ fontSize: 10, color: isDark ? "#a78bfa" : "#7c3aed" }}>@{node.nodeName}</span>
                 <span style={{ fontSize: 9, color: muted }}>{NODE_TYPE_LABELS[node.nodeType as NodeType]}</span>
               </button>
@@ -896,13 +738,13 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         </div>
 
         {/* Generate button */}
-        <button type="button" onClick={handleGenerate} disabled={isRunning} className="nodrag"
-          title={isRunning ? "生成中..." : "生成视频"}
+        <button type="button" onClick={handleGenerate} disabled={submitting} className="nodrag"
+          title={submitting ? "正在提交..." : "生成视频"}
           style={{
             fontSize: 11, padding: "3px 10px", borderRadius: 6, fontWeight: 600,
-            border: "none", cursor: isRunning ? "not-allowed" : "pointer",
-            background: isRunning ? (isDark ? "#3f3f46" : "#d4d4d8") : "#f97316",
-            color: isRunning ? muted : "#fff",
+            border: "none", cursor: submitting ? "not-allowed" : "pointer",
+            background: submitting ? (isDark ? "#3f3f46" : "#d4d4d8") : "#f97316",
+            color: submitting ? muted : "#fff",
           }}>
           ↑
         </button>

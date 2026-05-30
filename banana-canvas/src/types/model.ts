@@ -11,55 +11,19 @@ export interface ModelDefinition {
     sref?: boolean;        // MJ: style reference
     oref?: boolean;        // MJ: original reference
     batchMax?: number;     // max parallel images
+    geminiChat?: boolean;  // Gemini: uses chat completions as fallback
   };
 }
 
 // --- Image Models (40+) ---
 
 export const IMAGE_MODELS: ModelDefinition[] = [
+  // Google Gemini
+  { id: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image", provider: "google", type: "image", features: { batchMax: 1, geminiChat: true } },
+  { id: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image", provider: "google", type: "image", features: { batchMax: 1, geminiChat: true } },
+
   // OpenAI
   { id: "gpt-image-2", label: "GPT Image 2", provider: "openai", type: "image", features: { quality: true, style: true, outputFormat: true, moderation: true, batchMax: 4 } },
-  { id: "gpt-image-1.5", label: "GPT Image 1.5", provider: "openai", type: "image", features: { outputFormat: true, batchMax: 4 } },
-  { id: "gpt-image-1", label: "GPT Image 1", provider: "openai", type: "image", features: { batchMax: 4 } },
-
-  // Google Gemini
-  { id: "gemini-3.1-flash-image", label: "Gemini 3.1 Flash Image", provider: "google", type: "image", features: { batchMax: 1 } },
-  { id: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image", provider: "google", type: "image", features: { batchMax: 1 } },
-  { id: "gemini-3-pro-image", label: "Gemini 3 Pro Image", provider: "google", type: "image", features: { batchMax: 1 } },
-
-  // Google Imagen
-  { id: "imagen-4.0-generate-001", label: "Imagen 4.0", provider: "google", type: "image", features: { batchMax: 1 } },
-  { id: "imagen-3.0-generate-002", label: "Imagen 3.0", provider: "google", type: "image", features: { batchMax: 1 } },
-  { id: "imagen-3.0-fast-generate-001", label: "Imagen 3.0 Fast", provider: "google", type: "image", features: { batchMax: 1 } },
-
-  // DashScope (阿里)
-  { id: "qwen-image-edit", label: "通义万相 编辑", provider: "dashscope", type: "image", features: { batchMax: 4 } },
-  { id: "wan-2.6-image", label: "万相 2.6", provider: "dashscope", type: "image", features: { batchMax: 4 } },
-  { id: "z-image-official", label: "Z Image 官方", provider: "dashscope", type: "image", features: { batchMax: 4 } },
-  { id: "z-image-turbo", label: "Z Image 极速", provider: "dashscope", type: "image", features: { batchMax: 4 } },
-
-  // 即梦 (字节)
-  { id: "jimeng-5.0", label: "即梦 5.0", provider: "jimeng", type: "image", features: { batchMax: 4 } },
-  { id: "jimeng-4.0", label: "即梦 4.0", provider: "jimeng", type: "image", features: { batchMax: 4 } },
-  { id: "jimeng-3.1", label: "即梦 3.1", provider: "jimeng", type: "image", features: { batchMax: 4 } },
-  { id: "jimeng-2.1", label: "即梦 2.1", provider: "jimeng", type: "image", features: { batchMax: 4 } },
-
-  // Seedream (字节)
-  { id: "seedream-5.0-api", label: "Seedream 5.0", provider: "bytedance", type: "image", features: { batchMax: 4 } },
-  { id: "seedream-4.0", label: "Seedream 4.0", provider: "bytedance", type: "image", features: { batchMax: 4 } },
-
-  // Flux (Fal.ai)
-  { id: "flux-kontext", label: "Flux Kontext", provider: "fal", type: "image", features: { batchMax: 1 } },
-  { id: "flux-pro-1.1", label: "Flux Pro 1.1", provider: "fal", type: "image", features: { batchMax: 1 } },
-  { id: "flux-dev", label: "Flux Dev", provider: "fal", type: "image", features: { batchMax: 1 } },
-  { id: "flux-schnell", label: "Flux Schnell", provider: "fal", type: "image", features: { batchMax: 1 } },
-
-  // xAI
-  { id: "grok-4.1-image", label: "Grok 4.1 Image", provider: "xai", type: "image", features: { batchMax: 1 } },
-  { id: "grok-4.2-image", label: "Grok 4.2 Image", provider: "xai", type: "image", features: { batchMax: 1 } },
-
-  // Midjourney
-  { id: "mj-v6", label: "Midjourney V6", provider: "midjourney", type: "image", features: { sref: true, oref: true, batchMax: 1 } },
 ];
 
 // --- Video Models ---

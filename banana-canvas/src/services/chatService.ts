@@ -13,8 +13,14 @@ async function getHttpFetch(): Promise<typeof globalThis.fetch> {
 
 export interface ChatMessageParam {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: ChatMessageContent;
 }
+
+export type ChatMessageContent = string | ChatMessageContentPart[];
+
+export type ChatMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 // Non-streaming chat completion
 export async function sendChatMessage(params: {
@@ -68,17 +74,19 @@ export async function streamChatMessage(params: {
   onDone: (fullText: string) => void;
   onError: (error: Error) => void;
 }): Promise<void> {
-  const { baseUrl, apiKey } = useWorkspaceStore.getState();
-  if (!baseUrl) {
+  const { chatBaseUrl, chatApiKey, baseUrl, apiKey } = useWorkspaceStore.getState();
+  const url_base = chatBaseUrl || baseUrl;
+  const key = chatApiKey || apiKey;
+  if (!url_base) {
     params.onError(new Error("API 地址未配置"));
     return;
   }
 
-  const url = `${baseUrl}/v1/chat/completions`;
+  const url = `${url_base}/v1/chat/completions`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (key) headers["Authorization"] = `Bearer ${key}`;
 
   const body = {
     model: params.model,

@@ -1,11 +1,11 @@
 {
-  "version": "0.2.0",
-  "notes": "更新说明：\n- 新增拖拽导入素材功能\n- 新增画布框选与按键自定义\n- 优化智能体按钮视觉效果\n- 新增自动更新功能",
-  "pub_date": "2026-05-28T12:00:00Z",
+  "version": "0.3.2",
+  "notes": "Fix agent interactions, image model list, and video output workflow.",
+  "pub_date": "2026-05-30T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/felix1709/banana-felix/releases/download/v0.2.0/banana-canvas_0.2.0_x64-setup.nsis.exe",
-      "signature": ""
+      "url": "https://github.com/felix1709/banana-felix/releases/download/v0.3.2/banana-canvas_0.3.2_x64-setup.nsis.exe",
+      "signature": "PASTE_SIGNATURE_FROM_MATCHING_SIG_FILE"
     }
   }
 }

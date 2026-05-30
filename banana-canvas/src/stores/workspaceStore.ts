@@ -10,6 +10,8 @@ interface WorkspaceState {
   chatApiKey: string;
   videoBaseUrl: string;
   videoApiKey: string;
+  geminiBaseUrl: string;
+  geminiApiKey: string;
   lastSavedAt: number | null;
   autoSaveInterval: number; // minutes
   autoSaveEnabled: boolean;
@@ -24,6 +26,8 @@ interface WorkspaceState {
   setChatApiKey: (key: string) => void;
   setVideoBaseUrl: (url: string) => void;
   setVideoApiKey: (key: string) => void;
+  setGeminiBaseUrl: (url: string) => void;
+  setGeminiApiKey: (key: string) => void;
   setLastSavedAt: (ts: number) => void;
   setAutoSaveInterval: (minutes: number) => void;
   setAutoSaveEnabled: (on: boolean) => void;
@@ -37,6 +41,8 @@ interface WorkspaceState {
   getChatApiKey: () => string;
   getVideoApiUrl: () => string;
   getVideoApiKey: () => string;
+  getGeminiApiUrl: () => string;
+  getGeminiApiKey: () => string;
   loadWorkspace: (data: Partial<WorkspaceState>) => void;
 }
 
@@ -54,6 +60,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       chatApiKey: ls("banana_canvas_chat_key"),
       videoBaseUrl: ls("banana_canvas_video_base_url"),
       videoApiKey: ls("banana_canvas_video_key"),
+      geminiBaseUrl: ls("banana_canvas_gemini_base_url"),
+      geminiApiKey: ls("banana_canvas_gemini_key"),
       lastSavedAt: null,
       autoSaveInterval: 5,
       autoSaveEnabled: true,
@@ -100,6 +108,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => {
           state.videoApiKey = key;
           if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_video_key", key);
+        }),
+
+      setGeminiBaseUrl: (url) =>
+        set((state) => {
+          state.geminiBaseUrl = url;
+          if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_gemini_base_url", url);
+        }),
+
+      setGeminiApiKey: (key) =>
+        set((state) => {
+          state.geminiApiKey = key;
+          if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_gemini_key", key);
         }),
 
       setLastSavedAt: (ts) =>
@@ -159,6 +179,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       getVideoApiKey: () => {
         return get().videoApiKey || get().apiKey;
+      },
+
+      getGeminiApiUrl: () => {
+        return get().geminiBaseUrl || get().baseUrl;
+      },
+
+      getGeminiApiKey: () => {
+        return get().geminiApiKey || get().apiKey;
       },
 
       loadWorkspace: (data) =>

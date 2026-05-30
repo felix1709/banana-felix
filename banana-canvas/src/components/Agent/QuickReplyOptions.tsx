@@ -1,4 +1,5 @@
 import { memo, useCallback } from "react";
+import { ensureCustomOption, isCustomOption, isManualInputOption } from "./quickReplyOptionsUtils";
 
 interface QuickReplyOptionsProps {
   options: string[];
@@ -7,18 +8,17 @@ interface QuickReplyOptionsProps {
   onCustom?: () => void;
 }
 
-const CUSTOM_OPTION = "✏️ 自定义";
-
 export const QuickReplyOptions = memo(function QuickReplyOptions({ options, hint, onSelect, onCustom }: QuickReplyOptionsProps) {
   const handleClick = useCallback((opt: string) => {
-    if (opt === CUSTOM_OPTION) {
+    if (isManualInputOption(opt)) {
       onCustom?.();
     } else {
       onSelect(opt);
     }
   }, [onSelect, onCustom]);
 
-  if (options.length === 0) return null;
+  const normalizedOptions = ensureCustomOption(options);
+  if (normalizedOptions.length === 0) return null;
 
   return (
     <div style={{ marginTop: 4, marginBottom: 8 }}>
@@ -26,8 +26,8 @@ export const QuickReplyOptions = memo(function QuickReplyOptions({ options, hint
         <div style={{ fontSize: 10, color: "#71717a", marginBottom: 4 }}>{hint}</div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-        {options.map((opt) => {
-          const isCustom = opt === CUSTOM_OPTION;
+        {normalizedOptions.map((opt) => {
+          const isCustom = isCustomOption(opt);
           return (
             <button
               key={opt}

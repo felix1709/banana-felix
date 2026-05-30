@@ -50,6 +50,8 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const setChatApiKey = useWorkspaceStore((s) => s.setChatApiKey);
   const setVideoBaseUrl = useWorkspaceStore((s) => s.setVideoBaseUrl);
   const setVideoApiKey = useWorkspaceStore((s) => s.setVideoApiKey);
+  const setGeminiBaseUrl = useWorkspaceStore((s) => s.setGeminiBaseUrl);
+  const setGeminiApiKey = useWorkspaceStore((s) => s.setGeminiApiKey);
   const setRemoteModels = useWorkspaceStore((s) => s.setRemoteModels);
   const remoteModels = useWorkspaceStore((s) => s.remoteModels);
 
@@ -59,6 +61,8 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const [localChatKey, setLocalChatKey] = useState(useWorkspaceStore.getState().chatApiKey);
   const [localVideoUrl, setLocalVideoUrl] = useState(useWorkspaceStore.getState().videoBaseUrl);
   const [localVideoKey, setLocalVideoKey] = useState(useWorkspaceStore.getState().videoApiKey);
+  const [localGeminiUrl, setLocalGeminiUrl] = useState(useWorkspaceStore.getState().geminiBaseUrl);
+  const [localGeminiKey, setLocalGeminiKey] = useState(useWorkspaceStore.getState().geminiApiKey);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -69,7 +73,9 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
     setChatApiKey(localChatKey.trim());
     setVideoBaseUrl(localVideoUrl.trim());
     setVideoApiKey(localVideoKey.trim());
-  }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey]);
+    setGeminiBaseUrl(localGeminiUrl.trim());
+    setGeminiApiKey(localGeminiKey.trim());
+  }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, localGeminiUrl, localGeminiKey, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey, setGeminiBaseUrl, setGeminiApiKey]);
 
   const handleTestAndSave = useCallback(async () => {
     setTesting(true);
@@ -131,6 +137,12 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
           urlValue={localVideoUrl} urlSetter={setLocalVideoUrl} urlPlaceholder="留空则使用通用 API 地址"
           keyValue={localVideoKey} keySetter={setLocalVideoKey}
           hint="视频生成专用 API 地址，如 Seedance、可灵等。留空则复用通用 API" />
+
+        {/* Gemini 图片 API */}
+        <ApiSection title="Gemini 图片 API" color={isDark ? "#f59e0b" : "#d97706"}
+          urlValue={localGeminiUrl} urlSetter={setLocalGeminiUrl} urlPlaceholder="留空则使用通用 API 地址"
+          keyValue={localGeminiKey} keySetter={setLocalGeminiKey}
+          hint="Gemini 图片模型专用（如 gemini-2.5-flash-image 等）。留空则复用通用 API" />
 
         {/* Test result */}
         {testResult && (

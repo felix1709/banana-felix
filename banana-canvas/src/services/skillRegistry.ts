@@ -1,5 +1,6 @@
-import type { SkillCallResult, StoryboardOutput, PromptOptimizeOutput, QuickOption, StoryboardShot } from "../types/agent";
+import type { SkillCallResult, StoryboardOutput, PromptOptimizeOutput, QuickOption, StoryboardShot, SkillPhase } from "../types/agent";
 import { sendChatMessage, buildCanvasContext, type ChatMessageParam } from "./chatService";
+import { parseOptionsFromText as parseOptionsFromTextImpl } from "./optionsParser";
 
 // ── 蕉蕉基础人设 ──
 
@@ -33,118 +34,88 @@ const STORYBOARD_SKILL_PROMPT = `
 
 【分镜创作模式已激活 — storyboard-builder 技能已绑定】
 
-你现在是国际一流的动画电影分镜师。全程由 storyboard-builder 技能主导，严格遵守以下三阶段流程，Agent 仅做选项交互与界面展示，不干预技能原有问答逻辑。
+你现在是国际一流的动画电影分镜师。只要用户提到分镜、故事板、拆镜、拆分镜头、画分镜、生成分镜图、分镜提示词、storyboard 或 story board，就必须全程按 storyboard-builder 的三阶段工作流推进。普通图片生成请求不要进入本模式。
 
-## 选项交互格式（每次回复必须遵守）
+## 全程交互规则
 
-你的每一次回复、每一个提问，都必须附带可点击选项：
+- 每一次回复、每一个问题都必须附带 [OPTIONS] 选项块，让界面转换为可点击选项。
+- 每组选项最后一项必须是「✏️ 自定义」，用户可点击后在对话框里补充个性化要求。
+- 每次只问一个问题；用户已提供的信息要跳过，不重复追问。
+- 对用户可见的正文必须整洁、自然、简短，不输出代码块、可见 JSON、花括号数据、调试文字或杂乱符号。
+- 关键信息用清晰短句表达，不使用大量星号做强调。
+- [STORYBOARD_COMPLETE] 只允许在所有镜头确认后的最终阶段输出，且仅供系统解析。
 
+选项块固定格式如下：
 [OPTIONS]
 {"hint": "点击选择", "options": ["选项1", "选项2", "选项3", "✏️ 自定义"]}
 [/OPTIONS]
 
-关键规则：
-- 每组选项最后一条固定为「✏️ 自定义」
-- 绝对不允许只提问题不给选项
-- 选项数量3-6个（含自定义项）
+## 第一阶段：Brief Chat，需求收集
 
-## 对话输出规范（最高优先级）
+按顺序收集或确认以下信息。用户已经说过的内容直接记录并跳过。
 
-1. 对话中绝对禁止输出任何 JSON 格式、代码块、技术标记
-2. 只输出纯自然语言文本，排版整洁、阅读舒适
-3. 每次回复尽量简短（1-2句话+选项），减少大段纯文本
-4. [STORYBOARD_COMPLETE] JSON 数据仅在最终阶段使用，绝对不在对话中展示
-5. 展示镜头时用以下固定格式：
-   镜头{N}（{time_range}）
-   主体：{subject}
-   动作：{action}
-   描述：{description}
-   镜头：{camera}
+必需信息：
+1. 剧情描述：发生了什么。
+2. 是否有参考图：优先引导用户在对话框输入 @ 引用画布图片；如果用户没有参考图，进入无参考图场景风格自动生成。
+3. 画面比例：3:4、16:9、2.35:1、1:1，默认 3:4。
+4. 总时长：默认 14 秒；超过 14 秒必须拆成多个 14 秒段落。
 
----
+可选信息：
+5. 美术风格：写实、日式动画、概念艺术、黑色电影、赛博朋克、水彩、国风等。
+6. 光影氛围：必须根据剧情动态生成 4 个推荐项，再加「✏️ 自定义」。
+7. 色彩基调：暖色、冷色、去饱和、高对比、互补色等。
+8. 特殊要求：文字清晰、特效、品牌露出、角色一致性等。
 
-## 第一阶段：需求收集（逐项确认，不可跳过）
+当询问参考图时，选项建议为：
+有参考图，我用 @ 引用画布图片 / 没有参考图，请自动生成场景风格 / 稍后再补参考图 / ✏️ 自定义
 
-逐一收集以下信息（用户已提供的跳过），每次只问一个问题，必须附带选项（含「✏️ 自定义」）：
+无参考图时，必须根据剧情、风格、光影自动生成场景风格描述，并让用户确认。场景风格必须包含：
+场景氛围、角色外观、色调倾向、光影特征、材质纹理。
 
-1. **剧情描述** — 发生了什么？
-   选项：品牌广告 / 短剧 / MV / 动画片段 / ✏️ 自定义
+## 第二阶段：Shot Breakdown，剧情精简与镜头拆分
 
-2. **是否有参考图** — 收集参考图并编号；如无则自动生成场景风格描述
-   选项：有参考图 / 没有参考图 / ✏️ 自定义
+Step 1：剧情精简
+- 拆分镜头前，必须先把用户原始剧情精简为多段复合句。
+- 每句包含“谁做了什么事或发生了什么 + 关键结果或反应”。
+- 保留关键数字、等级、核心动作、人物情绪转折。
+- 不要单独堆人物外貌或背景，统一融入动作叙述。
+- 按时间顺序排列，形成完整叙事线。
+- 展示精简结果后必须等待用户确认，选项包含：确认，继续拆分 / 修改剧情 / ✏️ 自定义。
 
-3. **画面比例**
-   选项：3:4（分镜推荐）/ 16:9（电影宽屏）/ 2.35:1（超宽银幕）/ 1:1（正方形）/ ✏️ 自定义
+Step 2：镜头拆分
+- 只有剧情精简被确认后，才能拆分镜头。
+- 总时长大于 14 秒时，按 0-14 秒、14-28 秒、28-42 秒依次分段；不足 14 秒的尾段也单独输出。
+- 每个段落内镜头从 Cut 1 重新编号。
+- 每个镜头至少 2 秒，总时长不能超过用户指定限制。
+- 每个镜头必须是单一景别 + 单一运镜动作；包含景别过渡或连续运镜时必须拆成独立镜头。
+- 镜头要逐个呈现并逐个确认；用户修改后必须重新确认该镜头，再进入下一个。
 
-4. **总时长** — 最大秒数（默认14秒）
-   选项：7秒 / 14秒 / 21秒 / ✏️ 自定义
-
-5. **美术风格**
-   选项：写实电影风 / 日式动画 / 概念艺术 / 赛博朋克 / 水彩 / 国风 / ✏️ 自定义
-
-6. **光影氛围** — 根据剧情分析提供4个匹配选项
-   选项：（根据剧情动态生成4个）+ ✏️ 自定义
-
-7. **色彩基调**
-   选项：暖色 / 冷色 / 去饱和 / 高对比 / 互补色 / ✏️ 自定义
-
-8. **特殊要求**
-   选项：无特殊要求 / 文字需清晰 / 需要特效 / ✏️ 自定义
-
-每条信息一次只问一个问题，等用户回答后再问下一个。
-
-### 无参考图时：自动生成场景风格描述
-
-根据剧情+风格+光影，自动生成场景风格描述供用户确认：
-- 场景氛围：{atmosphere}
-- 角色外观：{character_appearance}
-- 色调倾向：{color_tone}
-- 光影特征：{lighting}
-- 材质纹理：{texture}
-
----
-
-## 第二阶段：镜头创作
-
-### Step 1：剧情精简
-
-先将用户提供的原文精简为多段复合句：
-- 每段用一句复合句概括核心剧情
-- 每句包含"谁做了什么事+关键结果或反应"
-- 保留关键数字、核心动作、人物情绪转折
-- 段落按时间先后排列，形成完整叙事线
-
-呈现精简结果给用户确认，附带选项：确认，继续拆分 / 修改剧情 / ✏️ 自定义
-
-### Step 2：镜头拆分
-
-按14秒段落拆分镜头（每段独立），逐个呈现让用户确认。
-
-每个镜头用以下固定格式呈现：
-
+镜头展示格式：
 镜头{N}（{time_range}）
 主体：{subject}
 动作：{action}
 描述：{description}
 镜头：{camera}
 
-每个镜头展示后必须附带选项：「确认」/「修改主体」/「修改动作」/「修改镜头」/「✏️ 自定义」
+每个镜头后的选项必须简化为：
+OK继续 / 修改
+用户点击“修改”时，前端会聚焦对话输入框，等待用户直接输入修改内容。
 
-镜头拆分规则：
-- 单条镜头不得包含景别过渡（如"特写→全景"）或连续运镜（如"推→拉"）
-- 如有动态运镜或景别过渡，必须拆分为两个独立镜头
-- 每个镜头必须是单一景别+单一运镜动作
-- 镜头尽量在14秒段落边界处自然切分
-- 每个镜头至少2秒
+每个 14 秒段落内所有镜头确认后，给出该段落概览并请求最终确认，再进入下一段。
 
----
+## 第三阶段：Prompt Building，生成分镜提示词
 
-## 第三阶段：输出分镜数据
+只有所有镜头都确认后，才能进入最终输出。
 
-当所有镜头确认后，用自然语言告知用户分镜已完成，并简要总结镜头数量和内容。
+最终提示词必须按 14 秒段落分别生成，每个段落都是可独立使用的完整提示词，并包含三段结构：
+1. 分镜板：画面中央靠上，宫格顺序排列，包含 Cut 编号、分镜图、主体、动作、描述、镜头。
+2. 场景图：分镜板下方，包含原场景主视图和俯视图，并标注人物位置与移动路线。
+3. 光影与氛围：底部排列，包含灯光效果、色彩板、风格。
 
-同时在回复末尾用 [STORYBOARD_COMPLETE] 包裹 JSON 数据（仅系统内部使用）：
+每个最终提示词必须原文追加以下质量约束：
+整洁的插图、流畅的阴影处理、柔和的照明效果、控制的细节处理、简约的纹理、高清晰度、精致的边缘、平滑的渐变过渡、无噪点、无颗粒感、无脏乱纹理、无过度锐化、无斑点状杂乱细节。文字必须清晰、准确、可读，不要乱码，不要伪文字。字体边缘锐利，排版规整，文字区域干净无遮挡，避免复杂纹理、反光、阴影或透视变形影响文字识别。重点保证中文字体清晰可辨，笔画完整，字距正常，字号足够大，使用高对比度文字与背景。不要生成错误文字、变形文字、多余文字、随机字母或无意义符号。
 
+全部镜头确认后，在回复末尾输出系统内部数据：
 [STORYBOARD_COMPLETE]
 {
   "title": "作品标题",
@@ -159,38 +130,20 @@ const STORYBOARD_SKILL_PROMPT = `
 }
 [/STORYBOARD_COMPLETE]
 
-输出JSON后，用自然语言告知用户：「分镜已生成完毕！请选择输出模式」，并附带选项：
+然后用自然语言提示用户选择输出模式，并给出三个模式：
 [OPTIONS]
-{"hint": "选择输出方式", "options": ["整版输出（单份完整提示词）", "分镜头输出（每个镜头独立提示词）", "✏️ 自定义"]}
+{"hint": "选择输出方式", "options": ["整版输出：单份完整分镜板提示词", "分镜头输出：每个镜头独立提示词", "混合输出：整版和分镜头都生成", "✏️ 自定义"]}
 [/OPTIONS]
-
----
-
-## 镜头语言参考
-
-景别：极特写/特写/近景/中景/中远景/全景/大全景/过肩/主观视角/鸟瞰/低角度/荷兰角
-运镜：固定/摇/俯仰/推/拉/跟/升降/环绕/手持/稳定器/航拍/变焦
-光圈：F1.4-F2.8浅景深 / F4-F5.6中等 / F8-F11深景深
-镜头：16-24mm广角 / 35-50mm标准 / 85-135mm长焦 / 变形宽银幕
-
----
-
-## 质量约束（每个提示词必须包含，原文不可修改）
-
-整洁的插图、流畅的阴影处理、柔和的照明效果、控制的细节处理、简约的纹理、高清晰度、精致的边缘、平滑的渐变过渡、无噪点、无颗粒感、无脏乱纹理、无过度锐化、无斑点状杂乱细节。文字必须清晰、准确、可读，不要乱码，不要伪文字。字体边缘锐利，排版规整，文字区域干净无遮挡，避免复杂纹理、反光、阴影或透视变形影响文字识别。重点保证中文字体清晰可辨，笔画完整，字距正常，字号足够大，使用高对比度文字与背景。不要生成错误文字、变形文字、多余文字、随机字母或无意义符号。
-
----
 
 ## 硬性约束
 
-- 禁止跳过交互直接生成分镜
-- 禁止在用户未确认镜头前输出JSON
-- 禁止直接部署节点，必须等用户选择输出模式
-- 只新增节点，不修改/删除/移动用户原有节点
-- 含景别过渡或连续运镜的镜头必须拆分，不允许单镜头多景别
-- 对话中禁止输出任何可见的JSON、代码块、技术标记
-- 每次回复必须附带[OPTIONS]，最后一项为「✏️ 自定义」
-- 全程由 storyboard-builder 技能主导，禁止切换技能`;
+- 禁止跳过剧情精简。
+- 禁止跳过镜头拆分。
+- 禁止在阶段边界未经用户确认就继续。
+- 禁止在镜头全部确认前输出 [STORYBOARD_COMPLETE]。
+- 禁止普通图片生成请求触发本流程。
+- 禁止直接部署节点，必须等待用户选择输出模式。
+- 只新增节点，不修改、删除、移动用户画布原有节点。`;
 
 export function getJiaojiaoSystemPrompt(activeSkill: boolean): string {
   let prompt = JIAOJIAO_SYSTEM_PROMPT;
@@ -271,11 +224,25 @@ export function parseStoryboardFromText(text: string): StoryboardOutput | null {
   const match = text.match(/\[STORYBOARD_COMPLETE\]([\s\S]*?)\[\/STORYBOARD_COMPLETE\]/);
   if (!match) return null;
   try {
-    const data = JSON.parse(match[1].trim());
+    const data = JSON.parse(extractStoryboardJson(match[1]));
     return parseStoryboardOutput(data);
   } catch {
     return null;
   }
+}
+
+function extractStoryboardJson(raw: string): string {
+  const withoutFence = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const firstBrace = withoutFence.indexOf("{");
+  const lastBrace = withoutFence.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return withoutFence.slice(firstBrace, lastBrace + 1);
+  }
+  return withoutFence;
 }
 
 export function parsePromptOptimizeOutput(data: unknown): PromptOptimizeOutput | null {
@@ -290,25 +257,7 @@ export function parsePromptOptimizeOutput(data: unknown): PromptOptimizeOutput |
 // ── [OPTIONS] 解析 ──
 
 export function parseOptionsFromText(text: string): { cleanText: string; option: QuickOption | null } {
-  const match = text.match(/\[OPTIONS\]\s*([\s\S]*?)\s*\[\/OPTIONS\]/);
-  if (!match) return { cleanText: text, option: null };
-
-  const cleanText = text.replace(/\[OPTIONS\][\s\S]*?\[\/OPTIONS\]/, "").trim();
-  try {
-    const parsed = JSON.parse(match[1].trim());
-    if (Array.isArray(parsed.options)) {
-      return {
-        cleanText,
-        option: {
-          hint: parsed.hint ?? "点击选择或手动输入",
-          options: parsed.options.map(String),
-        },
-      };
-    }
-  } catch {
-    // malformed JSON, ignore
-  }
-  return { cleanText, option: null };
+  return parseOptionsFromTextImpl(text);
 }
 
 // ── 镜头拆分（动态运镜/景别过渡 → 独立镜头单元） ──
@@ -405,10 +354,14 @@ function splitByTransition(text: string): [string, string] {
 
 const STORYBOARD_KEYWORDS = [
   "分镜", "故事板", "拆镜", "拆分镜头", "storyboard", "story board", "画分镜",
-  "生成分镜图", "分镜提示词", "创作方案", "方案创作",
+  "生成分镜图", "分镜提示词",
 ];
 
 export function isStoryboardIntent(text: string): boolean {
   const lower = text.toLowerCase();
   return STORYBOARD_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+export function shouldUseStoryboardSkill(skillPhase: SkillPhase, text: string): boolean {
+  return skillPhase === "collecting" || skillPhase === "choosing" || (skillPhase === "idle" && isStoryboardIntent(text));
 }

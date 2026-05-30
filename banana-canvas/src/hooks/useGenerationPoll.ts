@@ -96,13 +96,22 @@ export function useGenerationPoll(nodeId: string) {
               progress: 100,
               resultUrl,
             });
-            updateNode(nodeId, { content: resultUrl });
-            setXyNodes((nds) => nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, content: resultUrl } } : n));
+            const gs = useGraphStore.getState();
+            const currentNode = gs.nodes.find((n) => n.id === nodeId);
+            const nodePatch: Partial<CanvasNode> = { content: resultUrl };
+            if (resultUrl && result.videoUrl && currentNode?.type === "video-input") {
+              nodePatch.settings = {
+                ...currentNode.settings,
+                source: "url",
+                videoUrl: resultUrl,
+                fileName: "generated.mp4",
+              };
+            }
+            updateNode(nodeId, nodePatch);
+            setXyNodes((nds) => nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, ...nodePatch } } : n));
 
             // Auto-create input-image node for gen-image nodes
             if (resultUrl && result.imageUrl) {
-              const gs = useGraphStore.getState();
-              const currentNode = gs.nodes.find((n) => n.id === nodeId);
               const nodeType = currentNode?.type;
               if (nodeType === "gen-image" && currentNode) {
                 const existingOutputEdge = gs.edges.find(

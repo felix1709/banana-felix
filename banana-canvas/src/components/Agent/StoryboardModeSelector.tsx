@@ -4,9 +4,10 @@ import type { StoryboardOutput, OutputMode } from "../../types/agent";
 interface StoryboardModeSelectorProps {
   storyboard: StoryboardOutput;
   onModeSelect: (mode: OutputMode) => void;
+  onCustom: () => void;
 }
 
-export const StoryboardModeSelector = memo(function StoryboardModeSelector({ storyboard, onModeSelect }: StoryboardModeSelectorProps) {
+export const StoryboardModeSelector = memo(function StoryboardModeSelector({ storyboard, onModeSelect, onCustom }: StoryboardModeSelectorProps) {
   return (
     <div style={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, padding: 12, marginTop: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: "#f97316", marginBottom: 4 }}>
@@ -37,24 +38,38 @@ export const StoryboardModeSelector = memo(function StoryboardModeSelector({ sto
       <div style={{ fontSize: 11, color: "#a1a1aa", marginBottom: 8, fontWeight: 600 }}>
         请选择输出模式：
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         <button
           type="button"
           onClick={() => onModeSelect("full-board")}
-          style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: "2px solid #f97316", background: "rgba(249,115,22,0.1)", color: "#f97316", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+          style={{ flex: "1 1 140px", padding: "8px 0", borderRadius: 6, border: "2px solid #f97316", background: "rgba(249,115,22,0.1)", color: "#f97316", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
         >
           📋 整版输出
         </button>
         <button
           type="button"
           onClick={() => onModeSelect("per-shot")}
-          style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: "2px solid #22c55e", background: "rgba(34,197,94,0.1)", color: "#22c55e", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+          style={{ flex: "1 1 140px", padding: "8px 0", borderRadius: 6, border: "2px solid #22c55e", background: "rgba(34,197,94,0.1)", color: "#22c55e", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
         >
           ✂️ 分镜头输出
         </button>
+        <button
+          type="button"
+          onClick={() => onModeSelect("hybrid")}
+          style={{ flex: "1 1 140px", padding: "8px 0", borderRadius: 6, border: "2px solid #3b82f6", background: "rgba(59,130,246,0.1)", color: "#60a5fa", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+        >
+          📚 混合输出
+        </button>
+        <button
+          type="button"
+          onClick={onCustom}
+          style={{ flex: "1 1 140px", padding: "8px 0", borderRadius: 6, border: "2px dashed #f97316", background: "rgba(249,115,22,0.08)", color: "#f97316", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+        >
+          ✏️ 自定义
+        </button>
       </div>
       <div style={{ fontSize: 9, color: "#52525b", marginTop: 6 }}>
-        整版：单份完整提示词 · 分镜头：每个镜头独立提示词
+        整版：单份完整提示词 · 分镜头：每个镜头独立提示词 · 混合：两者都生成
       </div>
     </div>
   );

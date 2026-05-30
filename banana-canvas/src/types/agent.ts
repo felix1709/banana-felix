@@ -7,7 +7,7 @@ export type AgentStatus = "idle" | "thinking" | "generating" | "deploying";
 export type SkillPhase = "idle" | "collecting" | "choosing" | "deploying";
 
 // 输出模式
-export type OutputMode = "full-board" | "per-shot";
+export type OutputMode = "full-board" | "per-shot" | "hybrid";
 
 // 对话消息
 export interface ChatMessage {
@@ -67,6 +67,7 @@ export interface StoryboardOutput {
   genre: string;
   aspect_ratio: string;
   total_duration_s: number;
+  full_prompt?: string;
   style: {
     art_style: string;
     color_palette: string;
