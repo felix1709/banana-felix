@@ -5,6 +5,7 @@ import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useUpstreamNodes } from "../../../hooks/useUpstreamNodes";
 import { useUIStore } from "../../../stores/uiStore";
 import type { PreviewSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 export const PreviewNode = memo(function PreviewNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -12,7 +13,8 @@ export const PreviewNode = memo(function PreviewNode({ id, selected }: NodeProps
   const { settings, updateSettings } = useNodeSettings<PreviewSettings>(id);
 
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
 
   const isVideo = /\.(mp4|webm)/.test(upstreamContent);
   const zoom = settings.zoom ?? 1;
@@ -31,6 +33,15 @@ export const PreviewNode = memo(function PreviewNode({ id, selected }: NodeProps
 
   return (
     <BaseNode id={id} type="preview" selected={selected}>
+      {upstreamRef && (
+        <div className="mb-1.5">
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+          />
+        </div>
+      )}
       <div
         className="w-full rounded overflow-hidden flex items-center justify-center"
         style={{

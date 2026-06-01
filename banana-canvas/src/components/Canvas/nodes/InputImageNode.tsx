@@ -1,11 +1,15 @@
 import { memo, useCallback, useRef, useState, useEffect } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { useReactFlow } from "@xyflow/react";
+import { v4 as uuid } from "uuid";
 import { BaseNode } from "../BaseNode";
 import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useGraphStore } from "../../../stores/graphStore";
 import { useUIStore } from "../../../stores/uiStore";
 import { useMaterialIndex } from "../../../hooks/useMaterialIndex";
+import { reverseImagePrompt } from "../../../services/apiService";
+import { toXyEdge, toXyNode } from "../../../utils/nodeConvert";
+import { getDefaultSettings, NODE_DEFAULT_SIZES, type CanvasEdge, type CanvasNode } from "../../../types/node";
 import type { InputImageSettings } from "../../../types/settings";
 
 export const InputImageNode = memo(function InputImageNode({ id, selected }: NodeProps) {
@@ -14,11 +18,12 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
   const { settings, updateSettings } = useNodeSettings<InputImageSettings>(id);
   const updateNode = useGraphStore((s) => s.updateNode);
   const nodes = useGraphStore((s) => s.nodes);
-  const { setNodes: setXyNodes } = useReactFlow();
+  const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgContainerRef = useRef<HTMLDivElement>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reversing, setReversing] = useState(false);
 
   // Material index
   const materialEntries = useMaterialIndex();
@@ -222,6 +227,68 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
     }
   }, [imageUrl, fileName]);
 
+  const handleReversePrompt = useCallback(async () => {
+    if (!imageUrl) {
+      useUIStore.getState().addToast("warning", "请先上传图片，再反推提示词");
+      return;
+    }
+
+    const sourceNode = useGraphStore.getState().nodes.find((n) => n.id === id);
+    const textDims = NODE_DEFAULT_SIZES["text-node"];
+    const textNodeId = uuid();
+    const edgeId = uuid();
+    const sourceX = sourceNode?.x ?? 0;
+    const sourceY = sourceNode?.y ?? 0;
+    const sourceWidth = sourceNode?.width ?? NODE_DEFAULT_SIZES["input-image"].w;
+    const promptPlaceholder = "解析中...";
+
+    const textNode: CanvasNode = {
+      id: textNodeId,
+      type: "text-node",
+      x: sourceX + sourceWidth + 40,
+      y: sourceY,
+      width: textDims.w,
+      height: textDims.h,
+      content: "",
+      prompt: promptPlaceholder,
+      settings: getDefaultSettings("text-node"),
+      nodeName: `${sourceNode?.nodeName || "图片"} 反推提示词`,
+    };
+    const edge: CanvasEdge = {
+      id: edgeId,
+      from: id,
+      to: textNodeId,
+      fromPort: "default",
+      toPort: "default",
+      inputType: "default",
+    };
+
+    useGraphStore.getState().addNode(textNode);
+    useGraphStore.getState().addEdge(edge);
+    setXyNodes((nds) => [...nds, toXyNode(textNode)]);
+    setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+
+    setReversing(true);
+    try {
+      const prompt = await reverseImagePrompt({ image: imageUrl });
+      useGraphStore.getState().updateNode(textNodeId, { prompt });
+      setXyNodes((nds) => nds.map((n) => (
+        n.id === textNodeId ? { ...n, data: { ...n.data, prompt } } : n
+      )));
+      useUIStore.getState().addToast("success", "图片提示词已生成");
+    } catch (err) {
+      const fallback = "图片反推失败，请检查视觉模型和 API 设置后重试。";
+      useGraphStore.getState().updateNode(textNodeId, { prompt: fallback });
+      setXyNodes((nds) => nds.map((n) => (
+        n.id === textNodeId ? { ...n, data: { ...n.data, prompt: fallback } } : n
+      )));
+      const message = err instanceof Error ? err.message : "未知错误";
+      useUIStore.getState().addToast("error", `图片反推失败: ${message}`);
+    } finally {
+      setReversing(false);
+    }
+  }, [id, imageUrl, setXyEdges, setXyNodes]);
+
   return (
     <BaseNode id={id} type="input-image" selected={selected}>
       {/* Material index badge + move buttons */}
@@ -235,6 +302,24 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
         >
           #{materialIndex}
         </span>
+        {imageUrl && (
+          <button
+            type="button"
+            className="nodrag text-[9px] font-medium px-1.5 py-0.5 rounded"
+            onClick={(e) => { e.stopPropagation(); handleReversePrompt(); }}
+            disabled={reversing}
+            title="分析当前图片并生成结构化提示词"
+            style={{
+              background: reversing ? (isDark ? "#27272a" : "#e5e7eb") : (isDark ? "#3f1d2a" : "#fff1f2"),
+              color: reversing ? (isDark ? "#71717a" : "#9ca3af") : (isDark ? "#fb7185" : "#e11d48"),
+              border: `1px solid ${isDark ? "#4c1d2f" : "#fecdd3"}`,
+              cursor: reversing ? "not-allowed" : "pointer",
+              lineHeight: 1.2,
+            }}
+          >
+            {reversing ? "解析中" : "反推"}
+          </button>
+        )}
         {materialEntries.length > 1 && (
           <div className="flex gap-0.5 ml-1">
             <button

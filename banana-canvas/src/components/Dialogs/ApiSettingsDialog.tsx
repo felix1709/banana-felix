@@ -52,6 +52,7 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const setVideoApiKey = useWorkspaceStore((s) => s.setVideoApiKey);
   const setGeminiBaseUrl = useWorkspaceStore((s) => s.setGeminiBaseUrl);
   const setGeminiApiKey = useWorkspaceStore((s) => s.setGeminiApiKey);
+  const setVisionModel = useWorkspaceStore((s) => s.setVisionModel);
   const setRemoteModels = useWorkspaceStore((s) => s.setRemoteModels);
   const remoteModels = useWorkspaceStore((s) => s.remoteModels);
 
@@ -63,6 +64,7 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const [localVideoKey, setLocalVideoKey] = useState(useWorkspaceStore.getState().videoApiKey);
   const [localGeminiUrl, setLocalGeminiUrl] = useState(useWorkspaceStore.getState().geminiBaseUrl);
   const [localGeminiKey, setLocalGeminiKey] = useState(useWorkspaceStore.getState().geminiApiKey);
+  const [localVisionModel, setLocalVisionModel] = useState(useWorkspaceStore.getState().visionModel || "qwen3-vl-plus");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -75,7 +77,8 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
     setVideoApiKey(localVideoKey.trim());
     setGeminiBaseUrl(localGeminiUrl.trim());
     setGeminiApiKey(localGeminiKey.trim());
-  }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, localGeminiUrl, localGeminiKey, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey, setGeminiBaseUrl, setGeminiApiKey]);
+    setVisionModel(localVisionModel.trim() || "qwen3-vl-plus");
+  }, [localUrl, localKey, localChatUrl, localChatKey, localVideoUrl, localVideoKey, localGeminiUrl, localGeminiKey, localVisionModel, setBaseUrl, setApiKey, setChatBaseUrl, setChatApiKey, setVideoBaseUrl, setVideoApiKey, setGeminiBaseUrl, setGeminiApiKey, setVisionModel]);
 
   const handleTestAndSave = useCallback(async () => {
     setTesting(true);
@@ -108,6 +111,17 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
   const imageModels = remoteModels.filter((m) => m.type === "image");
   const videoModels = remoteModels.filter((m) => m.type === "video");
   const chatModels = remoteModels.filter((m) => m.type === "chat");
+  const visionModelIds = Array.from(new Set([
+    "qwen3-vl-plus",
+    localVisionModel,
+    ...remoteModels
+      .filter((m) => {
+        const id = m.id.toLowerCase();
+        return m.type === "chat" || id.includes("vl") || id.includes("vision") || id.includes("qwen") || id.includes("gemini") || id.includes("gpt-4o") || id.includes("omni") || id.includes("llava");
+      })
+      .map((m) => m.id),
+  ].filter(Boolean)));
+  const inputStyle = { background: isDark ? "#27272a" : "#ffffff", borderColor: isDark ? "#3f3f46" : "#d4d4d8", color: isDark ? "#e4e4e7" : "#18181b" };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
@@ -143,6 +157,24 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
           urlValue={localGeminiUrl} urlSetter={setLocalGeminiUrl} urlPlaceholder="留空则使用通用 API 地址"
           keyValue={localGeminiKey} keySetter={setLocalGeminiKey}
           hint="Gemini 图片模型专用（如 gemini-2.5-flash-image 等）。留空则复用通用 API" />
+
+        <div style={{ padding: "8px 10px", borderRadius: 8, background: isDark ? "#27272a" : "#f4f4f5", marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: isDark ? "#fb7185" : "#e11d48", marginBottom: 6 }}>视觉模型（图片理解）</div>
+          <label className="block text-[11px] mb-1" style={labelStyle}>模型</label>
+          <select
+            value={localVisionModel}
+            onChange={(e) => setLocalVisionModel(e.target.value)}
+            className="w-full text-xs px-3 py-2 rounded-lg border outline-none"
+            style={inputStyle}
+          >
+            {visionModelIds.map((modelId) => (
+              <option key={modelId} value={modelId}>{modelId}</option>
+            ))}
+          </select>
+          <div className="text-[9px] mt-0.5" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>
+            用于图片输入节点的「反推提示词」，默认 qwen3-vl-plus；接口沿用对话 API，留空时复用通用 API。
+          </div>
+        </div>
 
         {/* Test result */}
         {testResult && (

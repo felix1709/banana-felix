@@ -17,6 +17,7 @@ import { NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasEdge, NodeType } from "../../../types/node";
 import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
 import { buildVideoOutputNodeAndEdge } from "./videoOutputNode";
+import { stripReferenceMention } from "./referenceRemoval";
 
 // ── Preset styles ──
 
@@ -71,7 +72,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       .map((edge) => {
         const src = nodes.find((n) => n.id === edge.from);
         if (!src) return null;
-        return { nodeId: src.id, nodeName: src.nodeName, nodeType: src.type as NodeType, content: src.content, fromPort: edge.fromPort, toPort: edge.toPort };
+        return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type as NodeType, content: src.content, fromPort: edge.fromPort, toPort: edge.toPort };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
   }, [edges, id, nodes]);
@@ -195,6 +196,21 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     setAssigningSlot(null);
   }, [updateSettings]);
 
+  const removeConnectedRef = useCallback((ref: { edgeId: string; nodeId: string; nodeName: string }) => {
+    useGraphStore.getState().removeEdge(ref.edgeId);
+    setXyEdges((eds) => eds.filter((edge) => edge.id !== ref.edgeId));
+
+    const currentPrompt = useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
+    const nextPrompt = stripReferenceMention(currentPrompt, ref.nodeName);
+    updateNode(id, { prompt: nextPrompt });
+    setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: nextPrompt } } : n));
+
+    const patch: Partial<GenVideoSettings> = {};
+    if (settings.startFrameRef === ref.nodeId) patch.startFrameRef = "";
+    if (settings.endFrameRef === ref.nodeId) patch.endFrameRef = "";
+    if (Object.keys(patch).length > 0) updateSettings(patch);
+  }, [id, settings.startFrameRef, settings.endFrameRef, updateNode, updateSettings, setXyEdges, setXyNodes]);
+
   const videoModelOptions = useMemo(() => {
     const dynamic = remoteModels.filter((m) => m.type === "video");
     if (dynamic.length > 0) {
@@ -208,13 +224,17 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   // Lookup assigned frame ref details
   const startFrameNode = useMemo(() => {
     if (!settings.startFrameRef) return null;
+    const ref = imageRefs.find((item) => item.nodeId === settings.startFrameRef);
+    if (ref) return { id: ref.nodeId, nodeName: ref.nodeName, content: ref.content, type: ref.nodeType, edgeId: ref.edgeId };
     return nodes.find((n) => n.id === settings.startFrameRef);
-  }, [nodes, settings.startFrameRef]);
+  }, [imageRefs, nodes, settings.startFrameRef]);
 
   const endFrameNode = useMemo(() => {
     if (!settings.endFrameRef) return null;
+    const ref = imageRefs.find((item) => item.nodeId === settings.endFrameRef);
+    if (ref) return { id: ref.nodeId, nodeName: ref.nodeName, content: ref.content, type: ref.nodeType, edgeId: ref.edgeId };
     return nodes.find((n) => n.id === settings.endFrameRef);
-  }, [nodes, settings.endFrameRef]);
+  }, [imageRefs, nodes, settings.endFrameRef]);
 
   const handleGenerate = useCallback(async () => {
     // ── 1. Read LATEST settings from store (never use stale closure) ──
@@ -428,7 +448,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
       {/* ── MIDDLE: Reference area ── */}
       {/* Connected refs — multimodal mode shows click-to-insert chips */}
-      {settings.referenceMode === "multimodal" && connectedRefs.length > 0 && (
+      {connectedRefs.length > 0 && (
         <div style={{
           display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6, marginBottom: 4,
           padding: "4px 6px", borderRadius: 6,
@@ -436,7 +456,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
           border: `1px solid ${isDark ? "rgba(249,115,22,0.2)" : "rgba(249,115,22,0.15)"}`,
         }}>
           {connectedRefs.map((ref) => (
-            <button key={ref.nodeId} type="button" className="nodrag"
+            <button key={ref.edgeId} type="button" className="nodrag"
               onClick={() => appendMentionToPrompt(ref.nodeName)}
               title={`点击将 @${ref.nodeName} 添加到提示词`}
               style={{
@@ -450,6 +470,29 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               {(ref.nodeType === "video-input" || ref.nodeType === "gen-video") && <span style={{ fontSize: 8, color: "#f97316" }}>▶</span>}
               {(ref.nodeType === "audio-input" || ref.nodeType === "gen-music") && <span style={{ fontSize: 8, color: "#22c55e" }}>♪</span>}
               <span style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>@{ref.nodeName}</span>
+              <span
+                role="button"
+                aria-label={`删除引用 ${ref.nodeName}`}
+                title={`删除引用 ${ref.nodeName}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeConnectedRef(ref);
+                }}
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 999,
+                  color: "#ef4444",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                X
+              </span>
             </button>
           ))}
         </div>
@@ -473,7 +516,11 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               inputBg={inputBg}
               onOpenAssign={() => setAssigningSlot(assigningSlot === "start" ? null : "start")}
               onAssign={(nodeId) => assignFrameRef("start", nodeId)}
-              onClear={() => updateSettings({ startFrameRef: "" })}
+              onClear={() => {
+                const ref = imageRefs.find((item) => item.nodeId === settings.startFrameRef);
+                if (ref) removeConnectedRef(ref);
+                else updateSettings({ startFrameRef: "" });
+              }}
             />
           )}
           {showEndFrameSlot && (
@@ -489,7 +536,11 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               inputBg={inputBg}
               onOpenAssign={() => setAssigningSlot(assigningSlot === "end" ? null : "end")}
               onAssign={(nodeId) => assignFrameRef("end", nodeId)}
-              onClear={() => updateSettings({ endFrameRef: "" })}
+              onClear={() => {
+                const ref = imageRefs.find((item) => item.nodeId === settings.endFrameRef);
+                if (ref) removeConnectedRef(ref);
+                else updateSettings({ endFrameRef: "" });
+              }}
             />
           )}
         </div>
@@ -767,8 +818,8 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
 interface FrameSlotProps {
   label: string;
-  assignedNode: { id: string; nodeName: string; content: string; type: string } | null | undefined;
-  imageRefs: Array<{ nodeId: string; nodeName: string; nodeType: string; content: string }>;
+  assignedNode: { id: string; nodeName: string; content: string; type: string; edgeId?: string } | null | undefined;
+  imageRefs: Array<{ edgeId: string; nodeId: string; nodeName: string; nodeType: string; content: string }>;
   isAssigning: boolean;
   isDark: boolean;
   border: string;
@@ -813,7 +864,19 @@ function FrameSlot({ label, assignedNode, imageRefs, isAssigning, isDark, border
             {assignedNode.content && (
               <img src={assignedNode.content} alt="" style={{ width: 16, height: 16, borderRadius: 2, objectFit: "cover" }} />
             )}
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{assignedNode.nodeName}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{assignedNode.nodeName}</span>
+            <span
+              role="button"
+              aria-label={`删除引用 ${assignedNode.nodeName}`}
+              title={`删除引用 ${assignedNode.nodeName}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onClear();
+              }}
+              style={{ color: "#ef4444", fontSize: 10, lineHeight: 1, fontWeight: 700 }}
+            >
+              X
+            </span>
           </button>
         ) : (
           <button type="button" className="nodrag" onClick={onOpenAssign}

@@ -51,6 +51,7 @@ import { JiaojiaoBubble } from "./components/Agent/JiaojiaoBubble";
 import { JiaojiaoPanel } from "./components/Agent/JiaojiaoPanel";
 import { useAgentStore } from "./stores/agentStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
+import { useProjectAutoSave } from "./hooks/useProjectAutoSave";
 
 function CanvasApp() {
   const theme = useUIStore((s) => s.theme);
@@ -60,7 +61,8 @@ function CanvasApp() {
   const setActiveTool = useUIStore((s) => s.setActiveTool);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
 
-  const { screenToFlowPosition, getNodes, setNodes, setEdges, zoomIn, zoomOut } = useReactFlow();
+  const { screenToFlowPosition, getNodes, setNodes, setEdges, setViewport, zoomIn, zoomOut } = useReactFlow();
+  useProjectAutoSave(setNodes, setEdges, setViewport);
 
   const initialNodes = useMemo(
     () => useGraphStore.getState().nodes.map(toXyNode),
@@ -459,7 +461,7 @@ function CanvasApp() {
         (async () => {
           try {
             const { useProjectStore } = await import("./stores/projectStore");
-            const { serializeProject, showSaveDialog, writeProjectFile, browserDownloadProject } = await import("./services/projectService");
+            const { serializeProject, showSaveDialog, writeProjectFile, browserDownloadProject, clearTemporaryProject } = await import("./services/projectService");
             const ps = useProjectStore.getState();
             const content = serializeProject(ps.projectName);
             const isTauriEnv = "__TAURI_INTERNALS__" in window;
@@ -472,6 +474,7 @@ function CanvasApp() {
                 ps.setProjectPath(path);
               }
               await writeProjectFile(path, content);
+              clearTemporaryProject();
               const name = path.replace(/.*[/\\]/, "").replace(/\.gaga$/, "");
               if (name) ps.setProjectName(name);
             } else {
@@ -491,7 +494,7 @@ function CanvasApp() {
         (async () => {
           try {
             const { useProjectStore } = await import("./stores/projectStore");
-            const { serializeProject, showSaveDialog, writeProjectFile, browserDownloadProject } = await import("./services/projectService");
+            const { serializeProject, showSaveDialog, writeProjectFile, browserDownloadProject, clearTemporaryProject } = await import("./services/projectService");
             const ps = useProjectStore.getState();
             const content = serializeProject(ps.projectName);
             const isTauriEnv = "__TAURI_INTERNALS__" in window;
@@ -500,6 +503,7 @@ function CanvasApp() {
               const path = await showSaveDialog(ps.projectName);
               if (!path) return;
               await writeProjectFile(path, content);
+              clearTemporaryProject();
               ps.setProjectPath(path);
               const name = path.replace(/.*[/\\]/, "").replace(/\.gaga$/, "");
               if (name) ps.setProjectName(name);
@@ -622,64 +626,6 @@ function CanvasApp() {
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [getNodes, setNodes, setEdges]);
 
-  // ── Crash recovery on startup ──
-  useEffect(() => {
-    (async () => {
-      const { getLocalAutoSave, clearLocalAutoSave, deserializeProject } = await import("./services/projectService");
-      const autoSave = getLocalAutoSave();
-      if (!autoSave) return;
-      try {
-        const data = JSON.parse(autoSave);
-        const timeSinceAutoSave = Date.now() - (data.autoSavedAt || 0);
-        if (timeSinceAutoSave > 30 * 60 * 1000) {
-          clearLocalAutoSave();
-          return;
-        }
-        const recovered = window.confirm(
-          `检测到未保存的项目（${new Date(data.autoSavedAt).toLocaleString()}），是否恢复？`
-        );
-        if (recovered) {
-          const projectData = deserializeProject(autoSave);
-          useGraphStore.getState().loadGraph(projectData.nodes, projectData.edges, projectData.groups);
-          setNodes(projectData.nodes.map(toXyNode));
-          setEdges(projectData.edges.map(toXyEdge));
-          const { useProjectStore } = await import("./stores/projectStore");
-          useProjectStore.getState().setProjectName(projectData.projectName || "未命名项目");
-          useProjectStore.getState().markModified();
-          useUIStore.getState().addToast("success", "项目已恢复");
-        }
-        clearLocalAutoSave();
-      } catch {
-        clearLocalAutoSave();
-      }
-    })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Auto-save every 30s ──
-  useEffect(() => {
-    const interval = setInterval(() => {
-      (async () => {
-        const { useProjectStore } = await import("./stores/projectStore");
-        const ps = useProjectStore.getState();
-        if (!ps.modified) return;
-        const { autoSaveToLocal } = await import("./services/projectService");
-        autoSaveToLocal();
-        ps.setLastAutoSavedAt(Date.now());
-      })();
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ── Mark modified on graph changes ──
-  useEffect(() => {
-    const unsub = useGraphStore.subscribe(() => {
-      import("./stores/projectStore").then(({ useProjectStore }) => {
-        useProjectStore.getState().markModified();
-      });
-    });
-    return unsub;
-  }, []);
-
   // ── Silently fetch models on startup ──
   useEffect(() => {
     useWorkspaceStore.getState().fetchModelsSilently();
@@ -724,6 +670,9 @@ function CanvasApp() {
           onDragOver={onDragOver}
           onDrop={onDrop}
           onDragLeave={onDragLeave}
+          onMoveEnd={(_, viewport) => {
+            useGraphStore.getState().setView(viewport);
+          }}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Strict}

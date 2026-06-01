@@ -5,6 +5,7 @@ import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useGraphStore } from "../../../stores/graphStore";
 import { useUIStore } from "../../../stores/uiStore";
 import type { ImageCompareSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 export const ImageCompareNode = memo(function ImageCompareNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -26,20 +27,24 @@ export const ImageCompareNode = memo(function ImageCompareNode({ id, selected }:
   const nodes = useGraphStore((s) => s.nodes);
 
   // Find upstream images: split by connection order — first = left, second = right
-  const { leftImage, rightImage } = useMemo(() => {
+  const { leftRef, rightRef } = useMemo(() => {
     const incoming = edges.filter((e) => e.to === id);
-    const images: string[] = [];
+    const images: Array<{ edgeId: string; nodeId: string; nodeName: string; nodeType: string; content: string }> = [];
     for (const edge of incoming) {
       const src = nodes.find((n) => n.id === edge.from);
       if (!src || !src.content) continue;
       if (src.type !== "input-image" && src.type !== "gen-image") continue;
+      const ref = { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type, content: src.content };
       if (edge.toPort === "right") {
-        return { leftImage: images[0] ?? null, rightImage: src.content };
+        return { leftRef: images[0] ?? null, rightRef: ref };
       }
-      images.push(src.content);
+      images.push(ref);
     }
-    return { leftImage: images[0] ?? null, rightImage: images[1] ?? null };
+    return { leftRef: images[0] ?? null, rightRef: images[1] ?? null };
   }, [edges, id, nodes]);
+
+  const leftImage = leftRef?.content ?? null;
+  const rightImage = rightRef?.content ?? null;
 
   const sliderRef = useRef<HTMLDivElement>(null);
   const [sliderPos, setSliderPos] = useState(50);
@@ -110,6 +115,17 @@ export const ImageCompareNode = memo(function ImageCompareNode({ id, selected }:
           并排对比
         </button>
       </div>
+
+      {(leftRef || rightRef) && (
+        <div className="flex flex-col gap-1 mb-1.5">
+          {leftRef && (
+            <UpstreamReferenceHeader targetNodeId={id} reference={leftRef} isDark={isDark} />
+          )}
+          {rightRef && (
+            <UpstreamReferenceHeader targetNodeId={id} reference={rightRef} isDark={isDark} />
+          )}
+        </div>
+      )}
 
       {/* No images at all */}
       {!hasAny && placeholder("连接两张图片到左图/右图端口")}

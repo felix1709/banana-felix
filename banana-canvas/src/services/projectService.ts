@@ -3,6 +3,7 @@ import type { CanvasNode, CanvasEdge, Group, ViewState, TextBox, DoodleStroke } 
 
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 const AUTOSAVE_KEY = "banana_canvas_autosave";
+const TEMP_PROJECT_KEY = "banana_canvas_temporary_project";
 
 export interface ProjectData {
   version: number;
@@ -39,7 +40,15 @@ export function deserializeProject(json: string): ProjectData {
   if (data.version !== 1) {
     throw new Error(`不支持的项目版本: ${data.version}`);
   }
-  return data;
+  return {
+    ...data,
+    view: data.view ?? { x: 0, y: 0, zoom: 1 },
+    nodes: data.nodes ?? [],
+    edges: data.edges ?? [],
+    groups: data.groups ?? [],
+    canvasTextBoxes: data.canvasTextBoxes ?? [],
+    canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
+  };
 }
 
 export async function showSaveDialog(projectName: string): Promise<string | null> {
@@ -121,26 +130,43 @@ export function autoSaveToLocal(): void {
     const content = serializeProject(
       useGraphStore.getState().nodes.length > 0 ? "autosave" : "empty"
     );
-    const withTimestamp = JSON.stringify({
-      ...JSON.parse(content),
-      autoSavedAt: Date.now(),
-    });
-    localStorage.setItem(AUTOSAVE_KEY, withTimestamp);
+    saveTemporaryProject(content);
   } catch {
     // localStorage might be full or unavailable
   }
 }
 
 export function getLocalAutoSave(): string | null {
+  return getTemporaryProject();
+}
+
+export function clearLocalAutoSave(): void {
+  clearTemporaryProject();
+}
+
+export function saveTemporaryProject(content: string): number {
+  const savedAt = Date.now();
+  const withTimestamp = JSON.stringify({
+    ...JSON.parse(content),
+    temporary: true,
+    autoSavedAt: savedAt,
+  });
+  localStorage.setItem(TEMP_PROJECT_KEY, withTimestamp);
+  localStorage.setItem(AUTOSAVE_KEY, withTimestamp);
+  return savedAt;
+}
+
+export function getTemporaryProject(): string | null {
   try {
-    return localStorage.getItem(AUTOSAVE_KEY);
+    return localStorage.getItem(TEMP_PROJECT_KEY) || localStorage.getItem(AUTOSAVE_KEY);
   } catch {
     return null;
   }
 }
 
-export function clearLocalAutoSave(): void {
+export function clearTemporaryProject(): void {
   try {
+    localStorage.removeItem(TEMP_PROJECT_KEY);
     localStorage.removeItem(AUTOSAVE_KEY);
   } catch {
     // ignore

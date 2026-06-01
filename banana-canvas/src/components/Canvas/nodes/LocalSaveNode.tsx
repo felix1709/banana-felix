@@ -5,6 +5,7 @@ import { useNodeSettings } from "../../../hooks/useNodeSettings";
 import { useUpstreamNodes } from "../../../hooks/useUpstreamNodes";
 import { useUIStore } from "../../../stores/uiStore";
 import type { LocalSaveSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 export const LocalSaveNode = memo(function LocalSaveNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -14,7 +15,8 @@ export const LocalSaveNode = memo(function LocalSaveNode({ id, selected }: NodeP
   const [saveError, setSaveError] = useState("");
 
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
 
   const isVideo = /\.(mp4|webm)/.test(upstreamContent);
 
@@ -101,6 +103,15 @@ export const LocalSaveNode = memo(function LocalSaveNode({ id, selected }: NodeP
 
   return (
     <BaseNode id={id} type="local-save" selected={selected}>
+      {upstreamRef && (
+        <div className="mb-1.5">
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+          />
+        </div>
+      )}
       {/* Thumbnail preview */}
       <div
         className="w-full rounded flex items-center justify-center overflow-hidden"

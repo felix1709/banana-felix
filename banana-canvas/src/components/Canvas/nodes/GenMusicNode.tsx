@@ -12,6 +12,7 @@ import { getMentionableNodes, parseMentions } from "../../../hooks/useMentionPar
 import { buildAnchorText } from "../../../hooks/useAnchorText";
 import { NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasEdge, NodeType } from "../../../types/node";
+import { stripReferenceMention } from "./referenceRemoval";
 
 const MUSIC_MODELS = [
   { value: "musicgen", label: "MusicGen" },
@@ -28,6 +29,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
   const updateJob = useJobStore((s) => s.updateJob);
   const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
   const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
 
   // @-mention state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
@@ -45,6 +47,17 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
     const q = atQuery.text.toLowerCase();
     return mentionableNodes.filter((n) => n.nodeName.toLowerCase().includes(q));
   }, [atQuery, mentionableNodes]);
+
+  const connectedRefs = useMemo(() => {
+    return edges
+      .filter((edge) => edge.to === id)
+      .map((edge) => {
+        const src = nodes.find((node) => node.id === edge.from);
+        if (!src) return null;
+        return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type as NodeType, content: src.content };
+      })
+      .filter((ref): ref is NonNullable<typeof ref> => ref !== null);
+  }, [edges, id, nodes]);
 
   const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -93,6 +106,12 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
       textareaRef.current?.setSelectionRange(newPos, newPos);
     }, 0);
   }, [atQuery, settings.prompt, id, updateSettings, setXyEdges, mentionableNodes]);
+
+  const removeConnectedRef = useCallback((ref: { edgeId: string; nodeName: string }) => {
+    useGraphStore.getState().removeEdge(ref.edgeId);
+    setXyEdges((eds) => eds.filter((edge) => edge.id !== ref.edgeId));
+    updateSettings({ prompt: stripReferenceMention(settings.prompt, ref.nodeName) });
+  }, [settings.prompt, updateSettings, setXyEdges]);
 
   const inputStyle = {
     background: isDark ? "#27272a" : "#f4f4f5",
@@ -221,6 +240,43 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
                   </span>
                   <span className="text-[9px]" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
                     {NODE_TYPE_LABELS[node.nodeType as NodeType]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {connectedRefs.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {connectedRefs.map((ref) => (
+                <button
+                  key={ref.edgeId}
+                  type="button"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border nodrag"
+                  onClick={() => insertMention(ref.nodeName)}
+                  title={`插入 @${ref.nodeName}`}
+                  style={{
+                    borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+                    background: isDark ? "#18181b" : "#f4f4f5",
+                    color: isDark ? "#e4e4e7" : "#18181b",
+                  }}
+                >
+                  {(ref.nodeType === "input-image" || ref.nodeType === "gen-image") && ref.content && (
+                    <img src={ref.content} alt="" className="w-3.5 h-3.5 rounded object-cover" />
+                  )}
+                  {ref.nodeType === "video-input" && <span className="text-[9px]" style={{ color: "#f97316" }}>▶</span>}
+                  {ref.nodeType === "audio-input" && <span className="text-[9px]" style={{ color: "#22c55e" }}>♪</span>}
+                  <span className="text-[9px]" style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>@{ref.nodeName}</span>
+                  <span
+                    role="button"
+                    aria-label={`删除引用 ${ref.nodeName}`}
+                    title={`删除引用 ${ref.nodeName}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeConnectedRef(ref);
+                    }}
+                    style={{ color: "#ef4444", fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+                  >
+                    X
                   </span>
                 </button>
               ))}

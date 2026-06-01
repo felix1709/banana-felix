@@ -9,6 +9,7 @@ import { useGraphStore } from "../../../stores/graphStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
 import type { GenerateCharacterImageSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 const RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"];
 const RESOLUTIONS = ["Auto", "1024x1024", "1536x1024"];
@@ -19,7 +20,8 @@ export const GenerateCharacterImageNode = memo(function GenerateCharacterImageNo
   const { settings, updateSettings } = useNodeSettings<GenerateCharacterImageSettings>(id);
   const [generating, setGenerating] = useState(false);
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
   const addJob = useJobStore((s) => s.addJob);
   const updateJob = useJobStore((s) => s.updateJob);
   const { setNodes: setXyNodes } = useReactFlow();
@@ -47,6 +49,15 @@ export const GenerateCharacterImageNode = memo(function GenerateCharacterImageNo
   return (
     <BaseNode id={id} type="generate-character-image" selected={selected}>
       <div className="flex flex-col gap-2">
+        {upstreamRef && (
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+            promptValue={settings.style}
+            onPromptChange={(nextPrompt) => updateSettings({ style: nextPrompt })}
+          />
+        )}
         {upstreamContent && (
           <div className="rounded border overflow-hidden" style={{ height: 60, borderColor: isDark ? "#3f3f46" : "#d4d4d8" }}>
             <img src={upstreamContent} alt="" className="w-full h-full object-contain" />

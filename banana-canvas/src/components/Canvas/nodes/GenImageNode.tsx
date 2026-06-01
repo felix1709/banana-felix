@@ -18,6 +18,8 @@ import { buildAnchorText } from "../../../hooks/useAnchorText";
 import { NODE_TYPE_LABELS, NODE_DEFAULT_SIZES, getDefaultSettings } from "../../../types/node";
 import type { NodeType, CanvasEdge, CanvasNode } from "../../../types/node";
 import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
+import { getIncomingReferenceEdgeIdsToRemove, stripReferenceMention } from "./referenceRemoval";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 export const GenImageNode = memo(function GenImageNode({ id, data, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -47,9 +49,23 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
         if (!src.content) return null;
         imgIdx++;
         const name = src.nodeName || `图片${imgIdx}`;
-        return { nodeId: src.id, content: src.content, name, idx: imgIdx };
+        return { edgeId: edge.id, nodeId: src.id, content: src.content, name, idx: imgIdx };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
+  }, [edges, id, nodes]);
+
+  const otherReferenceItems = useMemo(() => {
+    return edges
+      .filter((edge) => edge.to === id)
+      .map((edge) => {
+        const src = nodes.find((node) => node.id === edge.from);
+        if (!src) return null;
+        const handle = edge.toPort ?? "default";
+        if (handle === "sref" || handle === "oref") return null;
+        if ((src.type === "input-image" || src.type === "gen-image") && src.content) return null;
+        return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type, content: src.content };
+      })
+      .filter((ref): ref is NonNullable<typeof ref> => ref !== null);
   }, [edges, id, nodes]);
 
   // Compute merged upstream prompt text (for auto-fill)
@@ -372,6 +388,27 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: text } } : n));
   }, [id, updateSettings, setXyNodes]);
 
+  const removeReferenceImage = useCallback((ref: { edgeId: string; nodeId: string; name: string }) => {
+    const graph = useGraphStore.getState();
+    const edgeIdsToRemove = getIncomingReferenceEdgeIdsToRemove(graph.edges, {
+      targetNodeId: id,
+      sourceNodeId: ref.nodeId,
+      edgeId: ref.edgeId,
+      ignoredTargetPorts: ["sref", "oref"],
+    });
+
+    for (const edgeId of edgeIdsToRemove) graph.removeEdge(edgeId);
+    setXyEdges((eds) => eds.filter((edge) => {
+      const targetHandle = edge.targetHandle ?? "default";
+      if (edgeIdsToRemove.has(edge.id)) return false;
+      return !(edge.target === id && edge.source === ref.nodeId && targetHandle !== "sref" && targetHandle !== "oref");
+    }));
+
+    const nextPrompt = stripReferenceMention(settings.localPrompt ?? "", ref.name);
+    updateSettings({ localPrompt: nextPrompt, isAutoPrompt: false });
+    setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: nextPrompt } } : n));
+  }, [id, settings.localPrompt, updateSettings, setXyEdges, setXyNodes]);
+
   const s = (base: Record<string, string>) => ({
     background: isDark ? "#27272a" : "#f4f4f5",
     borderColor: isDark ? "#3f3f46" : "#d4d4d8",
@@ -496,7 +533,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
           <div className="flex flex-wrap gap-1 mt-1">
             {referenceImages.map((ref) => (
               <button
-                key={ref.nodeId}
+                key={ref.edgeId}
                 type="button"
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded-full border"
                 style={{
@@ -515,7 +552,44 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
                 <span className="text-[9px]" style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>
                   @{ref.name}
                 </span>
+                <span
+                  role="button"
+                  aria-label={`删除引用 ${ref.name}`}
+                  title={`删除引用 ${ref.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeReferenceImage(ref);
+                  }}
+                  className="inline-flex items-center justify-center rounded-full"
+                  style={{
+                    width: 12,
+                    height: 12,
+                    color: "#ef4444",
+                    fontSize: 10,
+                    lineHeight: 1,
+                    fontWeight: 700,
+                  }}
+                >
+                  X
+                </span>
               </button>
+            ))}
+          </div>
+        )}
+        {otherReferenceItems.length > 0 && (
+          <div className="flex flex-col gap-1 mt-1">
+            {otherReferenceItems.map((ref) => (
+              <UpstreamReferenceHeader
+                key={ref.edgeId}
+                targetNodeId={id}
+                reference={ref}
+                isDark={isDark}
+                promptValue={settings.localPrompt ?? ""}
+                onPromptChange={(nextPrompt) => {
+                  updateSettings({ localPrompt: nextPrompt, isAutoPrompt: false });
+                  setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: nextPrompt } } : n));
+                }}
+              />
             ))}
           </div>
         )}

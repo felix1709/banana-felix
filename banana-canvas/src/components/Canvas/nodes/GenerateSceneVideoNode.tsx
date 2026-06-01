@@ -9,6 +9,7 @@ import { useGraphStore } from "../../../stores/graphStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
 import type { GenerateSceneVideoSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 const VIDEO_MODELS = [
   { value: "veo-2", label: "Veo 2" },
@@ -22,7 +23,8 @@ export const GenerateSceneVideoNode = memo(function GenerateSceneVideoNode({ id,
   const { settings, updateSettings } = useNodeSettings<GenerateSceneVideoSettings>(id);
   const [generating, setGenerating] = useState(false);
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
   const addJob = useJobStore((s) => s.addJob);
   const updateJob = useJobStore((s) => s.updateJob);
   const { setNodes: setXyNodes } = useReactFlow();
@@ -50,6 +52,15 @@ export const GenerateSceneVideoNode = memo(function GenerateSceneVideoNode({ id,
   return (
     <BaseNode id={id} type="generate-scene-video" selected={selected}>
       <div className="flex flex-col gap-2">
+        {upstreamRef && (
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+            promptValue={settings.cameraMotion}
+            onPromptChange={(nextPrompt) => updateSettings({ cameraMotion: nextPrompt })}
+          />
+        )}
         {upstreamContent && (
           <div className="rounded border overflow-hidden" style={{ height: 60, borderColor: isDark ? "#3f3f46" : "#d4d4d8" }}>
             <img src={upstreamContent} alt="" className="w-full h-full object-contain" />

@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { extractChatCompletionText, formatImageReversePrompt } from "./imagePromptReverse";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -706,6 +707,11 @@ export interface VideoAnalyzeRequest {
   prompt: string;
 }
 
+export interface ImageReversePromptRequest {
+  model?: string;
+  image: string;
+}
+
 interface ChatCompletionResponse {
   id: string;
   choices?: Array<{
@@ -722,6 +728,44 @@ interface ChatCompletionResponse {
   }>;
   taskId?: string;
   status?: string;
+}
+
+export async function reverseImagePrompt(req: ImageReversePromptRequest): Promise<string> {
+  const workspace = useWorkspaceStore.getState();
+  const model = req.model?.trim() || workspace.getVisionModel();
+  const prompt = [
+    "请分析用户提供的图片，生成可直接用于图片生成模型的结构化中文提示词。",
+    "只允许按以下五项输出，不要输出 JSON、代码块、解释、编号或多余文字：",
+    "主体描述：",
+    "环境描述：",
+    "光线效果：",
+    "风格标签：",
+    "质量增强词：",
+  ].join("\n");
+
+  const result = await apiRequest<ChatCompletionResponse>({
+    method: "POST",
+    path: "/v1/chat/completions",
+    overrideBaseUrl: workspace.getChatApiUrl(),
+    overrideApiKey: workspace.getChatApiKey(),
+    body: {
+      model,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: req.image } },
+          ],
+        },
+      ],
+    },
+  });
+
+  const text = extractChatCompletionText(result);
+  if (!text.trim()) throw new Error("视觉模型没有返回可用内容");
+  return formatImageReversePrompt(text);
 }
 
 export async function analyzeVideo(req: VideoAnalyzeRequest): Promise<{ taskId: string; status: string; result: string }> {

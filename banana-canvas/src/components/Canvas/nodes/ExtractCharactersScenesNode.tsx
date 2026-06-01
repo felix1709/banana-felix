@@ -9,6 +9,7 @@ import { useGraphStore } from "../../../stores/graphStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useUIStore } from "../../../stores/uiStore";
 import type { ExtractCharactersScenesSettings } from "../../../types/settings";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 const EXTRACT_MODES: ExtractCharactersScenesSettings["extractMode"][] = ["characters", "scenes", "both"];
 const EXTRACT_LABELS: Record<ExtractCharactersScenesSettings["extractMode"], string> = {
@@ -21,7 +22,8 @@ export const ExtractCharactersScenesNode = memo(function ExtractCharactersScenes
   const { settings, updateSettings } = useNodeSettings<ExtractCharactersScenesSettings>(id);
   const [running, setRunning] = useState(false);
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
   const addJob = useJobStore((s) => s.addJob);
   const updateJob = useJobStore((s) => s.updateJob);
   const { setNodes: setXyNodes } = useReactFlow();
@@ -50,6 +52,13 @@ export const ExtractCharactersScenesNode = memo(function ExtractCharactersScenes
   return (
     <BaseNode id={id} type="extract-characters-scenes" selected={selected}>
       <div className="flex flex-col gap-2">
+        {upstreamRef && (
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+          />
+        )}
         <div className="rounded border flex items-center justify-center overflow-hidden" style={{
           height: 80,
           background: isDark ? "#27272a" : "#f4f4f5",

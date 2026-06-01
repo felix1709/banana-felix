@@ -12,7 +12,10 @@ import {
   readProjectFile,
   browserDownloadProject,
   browserOpenProject,
+  clearTemporaryProject,
 } from "../../services/projectService";
+import { getAutoSaveStatusText } from "../../services/projectAutoSave";
+import { saveTemporarySnapshotNow } from "../../hooks/useProjectAutoSave";
 import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
 
 interface TopBarProps {
@@ -32,13 +35,16 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
   const projectPath = useProjectStore((s) => s.projectPath);
   const projectName = useProjectStore((s) => s.projectName);
   const modified = useProjectStore((s) => s.modified);
+  const autoSaveMode = useProjectStore((s) => s.autoSaveMode);
+  const autoSaveStatus = useProjectStore((s) => s.autoSaveStatus);
+  const autoSaveError = useProjectStore((s) => s.autoSaveError);
   const setProjectPath = useProjectStore((s) => s.setProjectPath);
   const setProjectName = useProjectStore((s) => s.setProjectName);
   const markSaved = useProjectStore((s) => s.markSaved);
   const resetProject = useProjectStore((s) => s.resetProject);
   const markModified = useProjectStore((s) => s.markModified);
 
-  const { setNodes, setEdges, zoomIn, zoomOut, fitView } = useReactFlow();
+  const { setNodes, setEdges, setViewport, zoomIn, zoomOut, fitView } = useReactFlow();
 
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -56,6 +62,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     setNodes([]);
     setEdges([]);
     resetProject();
+    saveTemporarySnapshotNow("未命名项目");
     addToast("success", "已新建项目");
   }, [confirmDiscard, setNodes, setEdges, resetProject, addToast]);
 
@@ -72,6 +79,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
           setProjectPath(path);
         }
         await writeProjectFile(path, content);
+        clearTemporaryProject();
         // Extract name from path
         const name = path.replace(/.*[/\\]/, "").replace(/\.gaga$/, "");
         if (name && name !== projectName) setProjectName(name);
@@ -95,6 +103,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
         const path = await showSaveDialog(projectName);
         if (!path) return;
         await writeProjectFile(path, content);
+        clearTemporaryProject();
         setProjectPath(path);
         const name = path.replace(/.*[/\\]/, "").replace(/\.gaga$/, "");
         if (name) setProjectName(name);
@@ -123,20 +132,31 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
         if (!json) return;
 
         const data = deserializeProject(json);
-        useGraphStore.getState().loadGraph(data.nodes, data.edges, data.groups);
+        useGraphStore.getState().loadGraph(data.nodes, data.edges, data.groups, {
+          view: data.view,
+          canvasTextBoxes: data.canvasTextBoxes ?? [],
+          canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
+        });
         setNodes(data.nodes.map(toXyNode));
         setEdges(data.edges.map(toXyEdge));
+        setViewport(data.view);
         setProjectPath(path);
         setProjectName(data.projectName || "未命名项目");
+        clearTemporaryProject();
         markSaved();
       } else {
         json = await browserOpenProject();
         if (!json) return;
 
         const data = deserializeProject(json);
-        useGraphStore.getState().loadGraph(data.nodes, data.edges, data.groups);
+        useGraphStore.getState().loadGraph(data.nodes, data.edges, data.groups, {
+          view: data.view,
+          canvasTextBoxes: data.canvasTextBoxes ?? [],
+          canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
+        });
         setNodes(data.nodes.map(toXyNode));
         setEdges(data.edges.map(toXyEdge));
+        setViewport(data.view);
         setProjectPath(null);
         setProjectName(data.projectName || "未命名项目");
         markModified();
@@ -146,7 +166,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     } catch (err) {
       addToast("error", `打开失败: ${err instanceof Error ? err.message : "未知错误"}`);
     }
-  }, [confirmDiscard, setNodes, setEdges, setProjectPath, setProjectName, markSaved, markModified, addToast]);
+  }, [confirmDiscard, setNodes, setEdges, setViewport, setProjectPath, setProjectName, markSaved, markModified, addToast]);
 
   // ── Name editing ──
   const startEdit = useCallback(() => {
@@ -188,6 +208,21 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     margin: "0 2px",
   };
 
+  const autoSaveText = getAutoSaveStatusText({
+    mode: autoSaveMode,
+    projectName,
+    status: autoSaveStatus,
+  });
+
+  const autoSaveColor =
+    autoSaveStatus === "error"
+      ? "#ef4444"
+      : autoSaveStatus === "saving"
+        ? "#f97316"
+        : autoSaveMode === "temporary"
+          ? (isDark ? "#facc15" : "#ca8a04")
+          : "#22c55e";
+
   return (
     <div
       className="fixed top-0 left-0 right-0 flex items-center gap-1 px-2 z-[100]"
@@ -216,6 +251,20 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
           {projectName}{modified ? " *" : ""}
         </button>
       )}
+      <span
+        title={autoSaveStatus === "error" && autoSaveError ? autoSaveError : autoSaveText}
+        style={{
+          fontSize: 10,
+          color: autoSaveColor,
+          border: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`,
+          borderRadius: 999,
+          padding: "1px 6px",
+          whiteSpace: "nowrap",
+          background: isDark ? "#18181b" : "#fafafa",
+        }}
+      >
+        {autoSaveText}
+      </span>
 
       <div style={separator} />
 

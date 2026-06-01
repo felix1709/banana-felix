@@ -41,7 +41,16 @@ interface GraphState {
   removeDoodleStroke: (id: string) => void;
   clearDoodleStrokes: () => void;
 
-  loadGraph: (nodes: CanvasNode[], edges: CanvasEdge[], groups: Group[]) => void;
+  loadGraph: (
+    nodes: CanvasNode[],
+    edges: CanvasEdge[],
+    groups: Group[],
+    extras?: {
+      view?: ViewState;
+      canvasTextBoxes?: TextBox[];
+      canvasDoodleStrokes?: DoodleStroke[];
+    },
+  ) => void;
   clearGraph: () => void;
 }
 
@@ -189,11 +198,14 @@ export const useGraphStore = create<GraphState>()(
         state.canvasDoodleStrokes = [];
       }),
 
-    loadGraph: (nodes, edges, groups) =>
+    loadGraph: (nodes, edges, groups, extras) =>
       set((state) => {
         state.nodes = nodes;
         state.edges = edges;
         state.groups = groups;
+        if (extras?.view) state.view = extras.view;
+        if (extras?.canvasTextBoxes) state.canvasTextBoxes = extras.canvasTextBoxes;
+        if (extras?.canvasDoodleStrokes) state.canvasDoodleStrokes = extras.canvasDoodleStrokes;
         state.selectedNodeId = null;
         state.selectedNodeIds = new Set();
       }),

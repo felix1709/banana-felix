@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import { useGraphStore } from "../stores/graphStore";
 
 interface UpstreamNode {
+  edgeId: string;
   nodeId: string;
+  nodeName: string;
   nodeType: string;
   content: string;
   prompt: string;
@@ -21,7 +23,9 @@ export function useUpstreamNodes(nodeId: string): UpstreamNode[] {
         const src = nodes.find((n) => n.id === edge.from);
         if (!src) return null;
         return {
+          edgeId: edge.id,
           nodeId: src.id,
+          nodeName: src.nodeName,
           nodeType: src.type,
           content: src.content,
           prompt: src.prompt,

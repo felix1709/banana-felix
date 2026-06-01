@@ -14,6 +14,7 @@ import type { CanvasNode, CanvasEdge } from "../../../types/node";
 import { inpaintImage, pollTask } from "../../../services/apiService";
 import type { InpaintCropSettings } from "../../../types/settings";
 import { IMAGE_MODELS } from "../../../types/model";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 // ── Helpers ──
 
@@ -132,7 +133,8 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
   const remoteModels = useWorkspaceStore((s) => s.remoteModels);
 
   const upstream = useUpstreamNodes(id);
-  const upstreamContent = upstream.length > 0 ? upstream[upstream.length - 1].content : "";
+  const upstreamRef = upstream.length > 0 ? upstream[upstream.length - 1] : null;
+  const upstreamContent = upstreamRef?.content ?? "";
 
   const imageModelOptions = (() => {
     const dynamic = remoteModels.filter((m) => m.type === "image");
@@ -460,6 +462,16 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
             局部重绘
           </button>
         </div>
+
+        {upstreamRef && (
+          <UpstreamReferenceHeader
+            targetNodeId={id}
+            reference={upstreamRef}
+            isDark={isDark}
+            promptValue={settings.inpaintPrompt}
+            onPromptChange={(nextPrompt) => updateSettings({ inpaintPrompt: nextPrompt })}
+          />
+        )}
 
         {/* Image preview */}
         <div

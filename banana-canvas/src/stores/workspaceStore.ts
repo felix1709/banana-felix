@@ -12,6 +12,7 @@ interface WorkspaceState {
   videoApiKey: string;
   geminiBaseUrl: string;
   geminiApiKey: string;
+  visionModel: string;
   lastSavedAt: number | null;
   autoSaveInterval: number; // minutes
   autoSaveEnabled: boolean;
@@ -28,6 +29,7 @@ interface WorkspaceState {
   setVideoApiKey: (key: string) => void;
   setGeminiBaseUrl: (url: string) => void;
   setGeminiApiKey: (key: string) => void;
+  setVisionModel: (model: string) => void;
   setLastSavedAt: (ts: number) => void;
   setAutoSaveInterval: (minutes: number) => void;
   setAutoSaveEnabled: (on: boolean) => void;
@@ -43,6 +45,7 @@ interface WorkspaceState {
   getVideoApiKey: () => string;
   getGeminiApiUrl: () => string;
   getGeminiApiKey: () => string;
+  getVisionModel: () => string;
   loadWorkspace: (data: Partial<WorkspaceState>) => void;
 }
 
@@ -62,6 +65,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       videoApiKey: ls("banana_canvas_video_key"),
       geminiBaseUrl: ls("banana_canvas_gemini_base_url"),
       geminiApiKey: ls("banana_canvas_gemini_key"),
+      visionModel: ls("banana_canvas_vision_model") || "qwen3-vl-plus",
       lastSavedAt: null,
       autoSaveInterval: 5,
       autoSaveEnabled: true,
@@ -120,6 +124,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => {
           state.geminiApiKey = key;
           if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_gemini_key", key);
+        }),
+
+      setVisionModel: (model) =>
+        set((state) => {
+          state.visionModel = model || "qwen3-vl-plus";
+          if (typeof localStorage !== "undefined") localStorage.setItem("banana_canvas_vision_model", state.visionModel);
         }),
 
       setLastSavedAt: (ts) =>
@@ -187,6 +197,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       getGeminiApiKey: () => {
         return get().geminiApiKey || get().apiKey;
+      },
+
+      getVisionModel: () => {
+        return get().visionModel || "qwen3-vl-plus";
       },
 
       loadWorkspace: (data) =>

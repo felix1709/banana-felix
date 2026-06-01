@@ -16,6 +16,7 @@ import { NODE_DEFAULT_SIZES, NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasNode, CanvasEdge, DoodleStroke, NodeType } from "../../../types/node";
 import { parseMentions, getMentionableNodes, type MentionedNode } from "../../../hooks/useMentionParser";
 import { buildCanvasAnchorText } from "../../../hooks/useAnchorText";
+import { stripReferenceMention } from "./referenceRemoval";
 
 // ── Constants ──
 
@@ -493,6 +494,26 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
       updateSettings({ canvasPrompt: settings.canvasPrompt + tag });
     }
   }, [settings.canvasPrompt, allNodes, updateSettings]);
+
+  const removeCanvasReference = useCallback((ref: { nodeId: string; nodeName?: string; edgeId?: string }) => {
+    if (ref.edgeId) {
+      useGraphStore.getState().removeEdge(ref.edgeId);
+      setXyEdges((eds) => eds.filter((edge) => edge.id !== ref.edgeId));
+    } else {
+      const matchingEdges = useGraphStore.getState().edges.filter((edge) => edge.to === id && edge.from === ref.nodeId);
+      for (const edge of matchingEdges) useGraphStore.getState().removeEdge(edge.id);
+      setXyEdges((eds) => eds.filter((edge) => !(edge.target === id && edge.source === ref.nodeId)));
+    }
+
+    const refName = ref.nodeName ?? allNodes.find((n) => n.id === ref.nodeId)?.nodeName ?? ref.nodeId;
+    const nextPrompt = stripReferenceMention(settings.canvasPrompt, refName);
+    const nextBindings = settings.refBindings.filter((binding) => binding.nodeId !== ref.nodeId);
+    updateSettings({
+      canvasPrompt: nextPrompt,
+      refBindings: nextBindings,
+      ...(settings.selectedRefId === ref.nodeId ? { selectedRefId: "" } : {}),
+    });
+  }, [allNodes, id, settings.canvasPrompt, settings.refBindings, settings.selectedRefId, setXyEdges, updateSettings]);
 
   // Clean up bindings for upstream nodes that no longer exist
   useEffect(() => {
@@ -1043,14 +1064,42 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                 const isSelected = settings.selectedRefId === ref.nodeId;
                 const isScene = binding?.type === "场景";
                 return (
-                  <div key={ref.nodeId}
-                    className="rounded border nodrag cursor-pointer"
+                  <div key={ref.edgeId}
+                    className="relative rounded border nodrag cursor-pointer"
                     onClick={() => selectRef(ref.nodeId)}
                     style={{
                       borderColor: isSelected ? "#3b82f6" : inputStyle.borderColor,
                       background: isSelected ? (isDark ? "#27272a" : "#eff6ff") : inputStyle.background,
                       padding: 3,
                     }}>
+                    <button
+                      type="button"
+                      className="absolute nodrag"
+                      title={`删除引用 ${ref.nodeName || ref.nodeId}`}
+                      aria-label={`删除引用 ${ref.nodeName || ref.nodeId}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeCanvasReference(ref);
+                      }}
+                      style={{
+                        top: -5,
+                        right: -5,
+                        width: 14,
+                        height: 14,
+                        borderRadius: 999,
+                        border: `1px solid ${isDark ? "#27272a" : "#ffffff"}`,
+                        background: isDark ? "#18181b" : "#ffffff",
+                        color: "#ef4444",
+                        fontSize: 10,
+                        lineHeight: 1,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      X
+                    </button>
                     {/* Thumbnail */}
                     {ref.content ? (
                       <img src={ref.content} alt="参考" className="w-10 h-10 object-cover rounded" style={{ pointerEvents: "none" }} />
@@ -1135,8 +1184,21 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
           <div className="rounded border px-2 py-1 flex items-center gap-1" style={{ borderColor: isDark ? "#3f3f46" : "#d4d4d8", background: isDark ? "#27272a" : "#f4f4f5" }}>
             <span className="text-[9px]" style={{ color: "#3b82f6" }}>文字输入</span>
             {upstreamTextSources.map((u) => (
-              <span key={u.nodeId} className="text-[9px] truncate max-w-[120px]" style={{ color: mutedColor }} title={u.prompt || u.content}>
+              <span key={u.edgeId} className="inline-flex items-center gap-1 text-[9px] max-w-[150px]" style={{ color: mutedColor }} title={u.prompt || u.content}>
                 {u.prompt || u.content ? `"${(u.prompt || u.content).slice(0, 20)}..."` : "(空)"}
+                <button
+                  type="button"
+                  className="nodrag"
+                  title="删除文字引用"
+                  aria-label="删除文字引用"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeCanvasReference(u);
+                  }}
+                  style={{ color: "#ef4444", fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+                >
+                  X
+                </button>
               </span>
             ))}
             <span className="text-[8px]" style={{ color: isDark ? "#52525b" : "#a1a1aa" }}>→ 提示词</span>
@@ -1229,7 +1291,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                 return (
               <button key={b.nodeId} type="button"
                 onClick={() => insertRefTag(b)}
-                className="text-[9px] px-1.5 py-0.5 rounded nodrag shrink-0"
+                className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded nodrag shrink-0"
                 title={`点击插入 @${refName} 到提示词`}
                 style={{
                   background: b.type === "场景"
@@ -1239,6 +1301,18 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                   border: `1px solid ${b.type === "场景" ? "rgba(34,197,94,0.3)" : b.color}`,
                 }}>
                 @{refName}
+                <span
+                  role="button"
+                  aria-label={`删除引用 ${refName}`}
+                  title={`删除引用 ${refName}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeCanvasReference({ nodeId: b.nodeId, nodeName: refName });
+                  }}
+                  style={{ color: "#ef4444", fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+                >
+                  X
+                </span>
               </button>
                 );
               })}

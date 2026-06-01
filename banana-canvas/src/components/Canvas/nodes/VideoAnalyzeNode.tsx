@@ -11,6 +11,7 @@ import { analyzeVideo } from "../../../services/apiService";
 import type { VideoAnalyzeSettings } from "../../../types/settings";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { v4 as uuid } from "uuid";
+import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 
 const ANALYSIS_PRESETS: Record<Exclude<VideoAnalyzeSettings["analysisType"], "custom">, string> = {
   scene: "以下是视频的多个关键帧截图，请根据这些画面详细描述这个视频的场景内容、环境、光照和氛围",
@@ -103,7 +104,7 @@ export const VideoAnalyzeNode = memo(function VideoAnalyzeNode({ id, data, selec
       if (src.type === "video-input" || src.type === "gen-video") {
         const srcContent = src.content || "";
         if (srcContent) {
-          return { nodeId: src.id, content: srcContent, name: src.nodeName || "视频" };
+          return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName || "视频", nodeType: src.type, content: srcContent };
         }
       }
     }
@@ -221,9 +222,13 @@ export const VideoAnalyzeNode = memo(function VideoAnalyzeNode({ id, data, selec
           style={{ background: isDark ? "#1c1917" : "#fef3c7" }}
         >
           <span style={{ fontSize: 14 }}>🎬</span>
-          <span className="text-[10px] truncate" style={{ color: isDark ? "#fbbf24" : "#92400e" }}>
-            {upstreamVideo.name}
-          </span>
+          <div className="flex-1 min-w-0">
+            <UpstreamReferenceHeader
+              targetNodeId={id}
+              reference={upstreamVideo}
+              isDark={isDark}
+            />
+          </div>
         </div>
       ) : (
         <div className="text-[10px] mb-1.5" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
