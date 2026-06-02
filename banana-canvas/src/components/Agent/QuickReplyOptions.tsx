@@ -42,7 +42,9 @@ export const QuickReplyOptions = memo(function QuickReplyOptions({ options, hint
                 fontSize: 11,
                 cursor: "pointer",
                 transition: "all 0.15s",
-                whiteSpace: "nowrap",
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
+                textAlign: "left",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = "#f97316";

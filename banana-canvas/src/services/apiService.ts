@@ -522,8 +522,30 @@ export interface VideoGenerateRequest {
   images?: string[];
 }
 
+type VideoContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string }; role: "user" | "reference" };
+
+function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
+  const parts: VideoContentPart[] = [{ type: "text", text: req.prompt }];
+  const pushImage = (url: string | undefined, role: "user" | "reference") => {
+    if (!url) return;
+    if (parts.some((part) => part.type === "image_url" && part.image_url.url === url && part.role === role)) return;
+    parts.push({ type: "image_url", image_url: { url }, role });
+  };
+
+  pushImage(req.startImage, "user");
+  pushImage(req.endImage, "user");
+  pushImage(req.referenceImageUrl, "reference");
+  for (const image of req.images ?? []) {
+    pushImage(image, "reference");
+  }
+  return parts;
+}
+
 export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<string, unknown> {
   const firstFrameImage = req.startImage || req.referenceImageUrl || undefined;
+  const contentParts = buildVideoContentParts(req);
   const body: Record<string, unknown> = {
     ...req,
     negative_prompt: req.negativePrompt || undefined,
@@ -553,6 +575,8 @@ export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<stri
     video_url: req.referenceVideoUrl || undefined,
     images: req.images && req.images.length > 0 ? req.images : undefined,
     image_urls: req.images && req.images.length > 0 ? req.images : undefined,
+    content: contentParts.length > 1 ? contentParts : undefined,
+    contents: contentParts.length > 1 ? contentParts : undefined,
   };
 
   for (const key of Object.keys(body)) {
@@ -631,6 +655,7 @@ async function generateVideoViaImageEndpoint(
   req: VideoGenerateRequest,
   opts: { overrideBaseUrl?: string; overrideApiKey?: string },
 ): Promise<TaskResponse> {
+  const contentParts = buildVideoContentParts(req);
   // Build image-generation-style body with video-specific fields
   const body: Record<string, unknown> = {
     model: req.model,
@@ -639,6 +664,8 @@ async function generateVideoViaImageEndpoint(
     size: req.ratio || "16:9",
     aspect_ratio: req.ratio || "16:9",
     ratio: req.ratio || "16:9",
+    content: contentParts.length > 1 ? contentParts : undefined,
+    contents: contentParts.length > 1 ? contentParts : undefined,
   };
   if (req.negativePrompt) body.negative_prompt = req.negativePrompt;
   if (req.duration) body.duration = req.duration;

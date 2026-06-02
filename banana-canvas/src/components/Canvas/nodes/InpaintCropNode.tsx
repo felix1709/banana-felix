@@ -15,6 +15,7 @@ import { inpaintImage, pollTask } from "../../../services/apiService";
 import type { InpaintCropSettings } from "../../../types/settings";
 import { IMAGE_MODELS } from "../../../types/model";
 import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 
 // ── Helpers ──
 
@@ -51,15 +52,9 @@ function createImageNodeOnCanvas(
   setEdges: (updater: (eds: Edge[]) => Edge[]) => void,
 ): void {
   const id = uuid();
-  const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === "input-image").length;
-  const nodeName = `图片${existingCount + 1}`;
-
-  const maxOrder = useGraphStore.getState().nodes
-    .filter((n) => n.type === "input-image")
-    .reduce((max, n) => {
-      const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
-      return ord > max ? ord : max;
-    }, 0);
+  const graphNodes = useGraphStore.getState().nodes;
+  const nodeName = getNextMaterialName(graphNodes, "input-image");
+  const materialOrder = getNextMaterialOrder(graphNodes, "input-image");
 
   const dims = NODE_DEFAULT_SIZES["input-image"];
   const node: CanvasNode = {
@@ -71,7 +66,7 @@ function createImageNodeOnCanvas(
     height: dims.h,
     content: imageUrl,
     prompt: "",
-    settings: { source: "upload", imageUrl, fileName: nodeName, materialOrder: maxOrder + 1 },
+    settings: { source: "upload", imageUrl, fileName: getMaterialFileName(nodeName, "input-image"), materialOrder },
     nodeName,
   };
 
@@ -285,7 +280,7 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
         const row = Math.floor(i / cols);
         const col = i % cols;
         const tileId = uuid();
-        const nodeName = `图片${maxOrder + 1 + i}`;
+        const nodeName = getNextMaterialName(useGraphStore.getState().nodes, "input-image");
 
         const node: CanvasNode = {
           id: tileId,
@@ -296,7 +291,7 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
           height: dims.h,
           content: tiles[i],
           prompt: "",
-          settings: { source: "upload", imageUrl: tiles[i], fileName: nodeName, materialOrder: maxOrder + 1 + i },
+          settings: { source: "upload", imageUrl: tiles[i], fileName: getMaterialFileName(nodeName, "input-image"), materialOrder: maxOrder + 1 + i },
           nodeName,
         };
 

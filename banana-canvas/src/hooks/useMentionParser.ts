@@ -1,6 +1,15 @@
 import type { CanvasNode, NodeType } from "../types/node";
 import { NODE_TYPE_LABELS } from "../types/node";
 
+const MENTIONABLE_NODE_TYPES: NodeType[] = [
+  "input-image",
+  "gen-image",
+  "video-input",
+  "gen-video",
+  "audio-input",
+  "gen-music",
+];
+
 export interface MentionedNode {
   nodeId: string;
   nodeName: string;
@@ -20,7 +29,7 @@ export function parseMentions(text: string, allNodes: CanvasNode[]): MentionedNo
     const found = allNodes.find(
       (n) => n.nodeName && n.nodeName.toLowerCase() === mentionName.toLowerCase(),
     );
-    if (found) {
+    if (found && MENTIONABLE_NODE_TYPES.includes(found.type)) {
       results.push({
         nodeId: found.id,
         nodeName: found.nodeName,
@@ -39,7 +48,7 @@ export function getMentionableNodes(
   selfId: string,
 ): Array<{ nodeId: string; nodeName: string; nodeType: NodeType; content: string }> {
   return allNodes
-    .filter((n) => n.id !== selfId)
+    .filter((n) => n.id !== selfId && MENTIONABLE_NODE_TYPES.includes(n.type))
     .map((n) => ({
       nodeId: n.id,
       nodeName: n.nodeName || NODE_TYPE_LABELS[n.type] || n.type,

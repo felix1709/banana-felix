@@ -17,6 +17,8 @@ import type { CanvasNode, CanvasEdge, DoodleStroke, NodeType } from "../../../ty
 import { parseMentions, getMentionableNodes, type MentionedNode } from "../../../hooks/useMentionParser";
 import { buildCanvasAnchorText } from "../../../hooks/useAnchorText";
 import { stripReferenceMention } from "./referenceRemoval";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 
 // ── Constants ──
 
@@ -113,21 +115,16 @@ function createImageNodeOnCanvas(
   setEdges: (updater: (eds: Edge[]) => Edge[]) => void,
 ): void {
   const newId = uuid();
-  const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === "input-image").length;
-  const nodeName = `图片${existingCount + 1}`;
-  const maxOrder = useGraphStore.getState().nodes
-    .filter((n) => n.type === "input-image")
-    .reduce((max, n) => {
-      const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
-      return ord > max ? ord : max;
-    }, 0);
+  const graphNodes = useGraphStore.getState().nodes;
+  const nodeName = getNextMaterialName(graphNodes, "input-image");
+  const materialOrder = getNextMaterialOrder(graphNodes, "input-image");
 
   const spot = findEmptySpot(sourceNodeX, sourceNodeY, sourceNodeW);
   const dims = NODE_DEFAULT_SIZES["input-image"];
   const node: CanvasNode = {
     id: newId, type: "input-image", x: spot.x, y: spot.y,
     width: dims.w, height: dims.h, content: imageUrl, prompt: "",
-    settings: { source: "upload", imageUrl, fileName: nodeName, materialOrder: maxOrder + 1 },
+    settings: { source: "upload", imageUrl, fileName: getMaterialFileName(nodeName, "input-image"), materialOrder },
     nodeName,
   };
   useGraphStore.getState().addNode(node);
@@ -308,6 +305,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
 
   // @-mention autocomplete state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const allNodes = useGraphStore((s) => s.nodes);
 
@@ -371,6 +369,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
 
     updateSettings({ canvasPrompt: newVal, ...(newRefBindings !== settings.refBindings ? { refBindings: newRefBindings } : {}) });
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const newPos = before.length + refName.length + 2;
       promptRef.current?.focus();
@@ -1241,8 +1240,10 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
               const atMatch = textBefore.match(/@([^\s@]*)$/);
               if (atMatch && mentionableNodes.length > 0) {
                 setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+                setMentionMenuPosition(getCaretMenuPosition(e.target));
               } else {
                 setAtQuery(null);
+                setMentionMenuPosition(null);
               }
             }}
             onKeyDown={(e) => {
@@ -1251,7 +1252,10 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                 const pick = filteredMentions[0];
                 insertMention(pick.nodeName);
               }
-              if (atQuery && e.key === "Escape") setAtQuery(null);
+              if (atQuery && e.key === "Escape") {
+                setAtQuery(null);
+                setMentionMenuPosition(null);
+              }
             }}
             placeholder="输入提示词，@引用图片素材..."
             className="w-full text-[11px] px-2 py-1 rounded border outline-none resize-none nodrag overflow-hidden"
@@ -1259,8 +1263,11 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
           {/* @-mention dropdown */}
           {atQuery && filteredMentions.length > 0 && (
             <div
-              className="absolute left-0 right-0 z-50 rounded-lg border shadow-lg overflow-hidden"
-              style={{ top: "100%", background: isDark ? "#27272a" : "#ffffff", borderColor: isDark ? "#3f3f46" : "#d4d4d8" }}>
+              className="nodrag rounded-lg border shadow-lg overflow-hidden"
+              style={caretMenuStyle(mentionMenuPosition, {
+                background: isDark ? "#27272a" : "#ffffff",
+                borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+              })}>
               {filteredMentions.map((node) => {
                 return (
                   <button key={node.nodeId} type="button"

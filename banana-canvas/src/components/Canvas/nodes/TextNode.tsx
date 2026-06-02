@@ -12,6 +12,7 @@ import { NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasEdge, NodeType } from "../../../types/node";
 import type { TextNodeSettings } from "../../../types/settings";
 import { stripReferenceMention } from "./referenceRemoval";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 
 interface AtQuery {
   index: number;
@@ -49,11 +50,13 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
   const [localText, setLocalText] = useState(currentText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atQuery, setAtQuery] = useState<AtQuery | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
 
   // Sync when tab or external data changes
   useEffect(() => {
     setLocalText(currentText);
     setAtQuery(null);
+    setMentionMenuPosition(null);
   }, [currentText, tab]);
 
   // Mentionable nodes
@@ -151,8 +154,10 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
       const atMatch = textBefore.match(/@([^\s@]*)$/);
       if (atMatch && mentionableNodes.length > 0) {
         setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+        setMentionMenuPosition(getCaretMenuPosition(e.target));
       } else {
         setAtQuery(null);
+        setMentionMenuPosition(null);
       }
     },
     [mentionableNodes, syncToStore],
@@ -193,6 +198,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
       setLocalText(newVal);
       syncToStore(newVal);
       setAtQuery(null);
+      setMentionMenuPosition(null);
       setTimeout(() => {
         const newPos = before.length + refName.length + 2;
         textareaRef.current?.focus();
@@ -424,16 +430,18 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
             }
             if (atQuery && e.key === "Escape") {
               setAtQuery(null);
+              setMentionMenuPosition(null);
             }
           }}
         />
         {atQuery && filteredMentions.length > 0 && (
           <div
-            className="absolute left-0 right-0 z-50 rounded-lg border shadow-lg overflow-hidden"
+            className="nodrag rounded-lg border shadow-lg overflow-hidden"
             style={{
-              top: "100%",
-              background: isDark ? "#27272a" : "#ffffff",
-              borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+              ...caretMenuStyle(mentionMenuPosition, {
+                background: isDark ? "#27272a" : "#ffffff",
+                borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+              }),
             }}
           >
             {filteredMentions.map((node) => {

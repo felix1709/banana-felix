@@ -20,6 +20,8 @@ import type { NodeType, CanvasEdge, CanvasNode } from "../../../types/node";
 import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
 import { getIncomingReferenceEdgeIdsToRemove, stripReferenceMention } from "./referenceRemoval";
 import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 
 export const GenImageNode = memo(function GenImageNode({ id, data, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -132,6 +134,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
 
   // @-mention autocomplete state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // All mentionable nodes (image, video, audio) for @dropdown
@@ -168,8 +171,10 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && mentionableNodes.length > 0) {
       setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+      setMentionMenuPosition(getCaretMenuPosition(e.target));
     } else {
       setAtQuery(null);
+      setMentionMenuPosition(null);
     }
   }, [id, updateSettings, setXyNodes, mentionableNodes.length]);
 
@@ -203,6 +208,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     updateSettings({ localPrompt: newVal, isAutoPrompt: false });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const newPos = before.length + refName.length + 2;
       textareaRef.current?.focus();
@@ -347,6 +353,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     // Create new input-image node — offset downward for each additional result
     const imgDims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
     const newNodeId = uuid();
+    const nodeName = getNextMaterialName(gs.nodes, "input-image");
     const newNode: CanvasNode = {
       id: newNodeId,
       type: "input-image",
@@ -356,8 +363,8 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
       height: imgDims.h,
       content: imageUrl,
       prompt: "",
-      nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果${resultIndex + 1}` : `生成结果${resultIndex + 1}`,
-      settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl, fileName: `generated_${resultIndex + 1}.png` },
+      nodeName,
+      settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl, fileName: getMaterialFileName(nodeName, "input-image"), materialOrder: getNextMaterialOrder(gs.nodes, "input-image") },
     };
 
     gs.addNode(newNode);
@@ -480,17 +487,19 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
             }
             if (atQuery && e.key === "Escape") {
               setAtQuery(null);
+              setMentionMenuPosition(null);
             }
           }}
         />
         {/* @-mention dropdown */}
         {atQuery && filteredMentions.length > 0 && (
           <div
-            className="absolute left-0 right-0 z-50 rounded-lg border shadow-lg overflow-hidden"
+            className="nodrag rounded-lg border shadow-lg overflow-hidden"
             style={{
-              top: "100%",
-              background: isDark ? "#27272a" : "#ffffff",
-              borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+              ...caretMenuStyle(mentionMenuPosition, {
+                background: isDark ? "#27272a" : "#ffffff",
+                borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+              }),
             }}
           >
             {filteredMentions.map((node) => {

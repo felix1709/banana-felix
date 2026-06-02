@@ -18,6 +18,7 @@ import type { DeployPreview, OutputMode, StoryboardOutput } from "../../types/ag
 import { getMentionableNodes } from "../../hooks/useMentionParser";
 import { buildReferencedImageParts, type ReferencedImagePart } from "./agentImageMentions";
 import { parseImageNodeSpecsForAgentCommand, type AgentImageNodeSpec } from "./agentNodeCommands";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../utils/caretMenuPosition";
 
 export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const panelOpen = useAgentStore((s) => s.panelOpen);
@@ -45,9 +46,10 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
   const [input, setInput] = useState("");
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const chatModels = (() => {
     const dynamic = remoteModels.filter((m) => m.type === "chat");
@@ -255,8 +257,10 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && imageMentionOptions.length > 0) {
       setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+      if (inputRef.current) setMentionMenuPosition(getCaretMenuPosition(inputRef.current));
     } else {
       setAtQuery(null);
+      setMentionMenuPosition(null);
     }
   }, [imageMentionOptions.length]);
 
@@ -268,6 +272,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     const next = `${before}@${nodeName} ${after}`;
     setInput(next);
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const pos = before.length + nodeName.length + 2;
       inputRef.current?.focus();
@@ -654,10 +659,15 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
       {/* Input */}
       <div style={{ position: "relative", display: "flex", gap: 6, padding: "8px 12px", borderTop: "1px solid #27272a", background: "#18181b" }}>
-        <input
+        <textarea
           ref={inputRef}
           value={input}
           onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
+          onInput={(e) => {
+            const el = e.currentTarget;
+            el.style.height = "auto";
+            el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+          }}
           onKeyDown={(e) => {
             if (atQuery && filteredImageMentions.length > 0 && e.key === "Enter") {
               e.preventDefault();
@@ -666,29 +676,32 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
             }
             if (atQuery && e.key === "Escape") {
               setAtQuery(null);
+              setMentionMenuPosition(null);
               return;
             }
             handleKeyDown(e);
           }}
           placeholder={skillPhase === "choosing" ? "可补充自定义输出要求..." : "和蕉蕉聊聊创作想法..."}
           disabled={status === "thinking" || status === "generating"}
-          style={{ flex: 1, fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #3f3f46", background: "#0f0f0f", color: "#e4e4e7", outline: "none" }}
+          rows={1}
+          style={{
+            flex: 1, fontSize: 12, minHeight: 32, maxHeight: 120, padding: "6px 10px",
+            borderRadius: 6, border: "1px solid #3f3f46", background: "#0f0f0f", color: "#e4e4e7",
+            outline: "none", resize: "none", overflowY: "auto", lineHeight: 1.45,
+          }}
         />
         {atQuery && filteredImageMentions.length > 0 && (
           <div
             style={{
-              position: "absolute",
-              left: 12,
-              right: 70,
-              bottom: 44,
-              zIndex: 20,
+              ...caretMenuStyle(mentionMenuPosition, {
+                background: "#18181b",
+                borderColor: "#3f3f46",
+              }),
               background: "#18181b",
               border: "1px solid #3f3f46",
               borderRadius: 8,
               padding: 4,
               boxShadow: "0 8px 18px rgba(0,0,0,0.35)",
-              maxHeight: 180,
-              overflowY: "auto",
             }}
           >
             {filteredImageMentions.map((node) => (

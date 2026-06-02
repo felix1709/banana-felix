@@ -49,3 +49,7 @@ assert(body.video_url === request.referenceVideoUrl, "passes reference video");
 assert(body.audio_url === request.referenceAudioUrl, "passes reference audio");
 assert(Array.isArray(body.images) && body.images.length === 2, "passes all reference images");
 assert(Array.isArray(body.image_urls) && body.image_urls.length === 2, "adds image_urls alias");
+assert(Array.isArray(body.content), "adds multimodal content parts");
+const imageParts = (body.content as Array<{ type: string; role?: string }>).filter((part) => part.type === "image_url");
+assert(imageParts.length >= 3, "adds image content parts for start/end/reference images");
+assert(imageParts.every((part) => part.role === "user" || part.role === "reference"), "all image content parts include role");

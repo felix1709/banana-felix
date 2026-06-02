@@ -7,6 +7,7 @@ import { v4 as uuid } from "uuid";
 import { NODE_DEFAULT_SIZES, getDefaultSettings } from "../types/node";
 import type { CanvasNode, CanvasEdge } from "../types/node";
 import { toXyNode, toXyEdge } from "../utils/nodeConvert";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../utils/materialNaming";
 
 const POLL_INTERVAL = 2000;     // 2 seconds
 const TIMEOUT_MS = 300000;      // 5 minutes
@@ -123,6 +124,7 @@ export function useGenerationPoll(nodeId: string) {
                 } else {
                   const imgDims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
                   const newNodeId = uuid();
+                  const nodeName = getNextMaterialName(gs.nodes, "input-image");
                   const newNode: CanvasNode = {
                     id: newNodeId,
                     type: "input-image",
@@ -132,8 +134,14 @@ export function useGenerationPoll(nodeId: string) {
                     height: imgDims.h,
                     content: resultUrl,
                     prompt: "",
-                    nodeName: currentNode.nodeName ? `${currentNode.nodeName} 结果` : "生成结果",
-                    settings: { ...getDefaultSettings("input-image"), source: "upload", imageUrl: resultUrl, fileName: "generated.png" },
+                    nodeName,
+                    settings: {
+                      ...getDefaultSettings("input-image"),
+                      source: "upload",
+                      imageUrl: resultUrl,
+                      fileName: getMaterialFileName(nodeName, "input-image"),
+                      materialOrder: getNextMaterialOrder(gs.nodes, "input-image"),
+                    },
                   };
                   gs.addNode(newNode);
                   setXyNodes((nds) => [...nds, toXyNode(newNode)]);

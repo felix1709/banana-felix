@@ -52,6 +52,12 @@ import { JiaojiaoPanel } from "./components/Agent/JiaojiaoPanel";
 import { useAgentStore } from "./stores/agentStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useProjectAutoSave } from "./hooks/useProjectAutoSave";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "./utils/materialNaming";
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true'], .nodrag"));
+}
 
 function CanvasApp() {
   const theme = useUIStore((s) => s.theme);
@@ -81,6 +87,7 @@ function CanvasApp() {
   } | null>(null);
 
   const dragSnapshotTaken = useRef(false);
+  const lastCanvasPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showKeybindingSettings, setShowKeybindingSettings] = useState(false);
   const [showUpdateChecker, setShowUpdateChecker] = useState(false);
@@ -210,6 +217,41 @@ function CanvasApp() {
     }
   }, []);
 
+  const createImageInputNodeFromFile = useCallback(
+    (file: File, screenX: number, screenY: number, offsetIndex = 0) => {
+      if (!file.type.startsWith("image/")) return;
+      const flowPos = screenToFlowPosition({ x: screenX, y: screenY });
+      const dims = NODE_DEFAULT_SIZES["input-image"] ?? { w: 260, h: 260 };
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const graphNodes = useGraphStore.getState().nodes;
+        const nodeName = getNextMaterialName(graphNodes, "input-image");
+        const nodeSettings = getDefaultSettings("input-image");
+        (nodeSettings as Record<string, unknown>).imageUrl = dataUrl;
+        (nodeSettings as Record<string, unknown>).fileName = getMaterialFileName(nodeName, "input-image");
+        (nodeSettings as Record<string, unknown>).materialOrder = getNextMaterialOrder(graphNodes, "input-image");
+
+        const node: CanvasNode = {
+          id: uuid(),
+          type: "input-image",
+          x: flowPos.x - dims.w / 2 + offsetIndex * 30,
+          y: flowPos.y - dims.h / 2 + offsetIndex * 30,
+          width: dims.w,
+          height: dims.h,
+          content: dataUrl,
+          prompt: "",
+          settings: nodeSettings,
+          nodeName,
+        };
+        useGraphStore.getState().addNode(node);
+        setNodes((nds) => [...nds, toXyNode(node)]);
+      };
+      reader.readAsDataURL(file);
+    },
+    [screenToFlowPosition, setNodes],
+  );
+
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     setDragOverActive(false);
@@ -234,36 +276,33 @@ function CanvasApp() {
 
       const nodeType: NodeType = isImage ? "input-image" : "video-input";
       const dims = NODE_DEFAULT_SIZES[nodeType] ?? { w: 260, h: 260 };
+      const nodeOffsetX = offsetX;
+      const nodeOffsetY = offsetY;
 
       const reader = new FileReader();
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string;
         const id = uuid();
-        const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === nodeType).length;
-        const defaultName = isImage ? `图片${existingCount + 1}` : `视频${existingCount + 1}`;
-        const maxOrder = useGraphStore.getState().nodes
-          .filter((n) => n.type === nodeType)
-          .reduce((max, n) => {
-            const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
-            return ord > max ? ord : max;
-          }, 0);
+        const graphNodes = useGraphStore.getState().nodes;
+        const defaultName = getNextMaterialName(graphNodes, nodeType);
+        const materialOrder = getNextMaterialOrder(graphNodes, nodeType);
 
         const nodeSettings = getDefaultSettings(nodeType);
         if (isImage) {
           (nodeSettings as Record<string, unknown>).imageUrl = dataUrl;
-          (nodeSettings as Record<string, unknown>).fileName = file.name;
-          (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+          (nodeSettings as Record<string, unknown>).fileName = getMaterialFileName(defaultName, nodeType);
+          (nodeSettings as Record<string, unknown>).materialOrder = materialOrder;
         } else {
           (nodeSettings as Record<string, unknown>).videoUrl = dataUrl;
-          (nodeSettings as Record<string, unknown>).fileName = file.name;
-          (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+          (nodeSettings as Record<string, unknown>).fileName = getMaterialFileName(defaultName, nodeType);
+          (nodeSettings as Record<string, unknown>).materialOrder = materialOrder;
         }
 
         const node: CanvasNode = {
           id,
           type: nodeType,
-          x: flowPos.x - dims.w / 2 + offsetX,
-          y: flowPos.y - dims.h / 2 + offsetY,
+          x: flowPos.x - dims.w / 2 + nodeOffsetX,
+          y: flowPos.y - dims.h / 2 + nodeOffsetY,
           width: dims.w,
           height: dims.h,
           content: dataUrl,
@@ -280,6 +319,55 @@ function CanvasApp() {
       offsetY += 30;
     }
   }, [screenToFlowPosition, setNodes]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if ((event.target as HTMLElement | null)?.closest(".react-flow")) {
+        lastCanvasPointerRef.current = { x: event.clientX, y: event.clientY };
+      }
+    };
+    document.addEventListener("pointermove", handlePointerMove, true);
+    return () => document.removeEventListener("pointermove", handlePointerMove, true);
+  }, []);
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+
+      const imageFiles = [
+        ...Array.from(clipboard.files).filter((file) => file.type.startsWith("image/")),
+        ...Array.from(clipboard.items)
+          .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => Boolean(file)),
+      ];
+      const uniqueFiles = imageFiles.filter((file, index, list) =>
+        list.findIndex((item) => item.name === file.name && item.size === file.size && item.type === file.type) === index,
+      );
+      if (uniqueFiles.length === 0) return;
+
+      event.preventDefault();
+      pushSnapshot();
+      const pane = document.querySelector(".react-flow__pane") as HTMLElement | null;
+      const paneRect = pane?.getBoundingClientRect();
+      const pointer = lastCanvasPointerRef.current;
+      const screenPoint = pointer && paneRect &&
+        pointer.x >= paneRect.left && pointer.x <= paneRect.right &&
+        pointer.y >= paneRect.top && pointer.y <= paneRect.bottom
+        ? pointer
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+      uniqueFiles.forEach((file, index) => {
+        createImageInputNodeFromFile(file, screenPoint.x, screenPoint.y, index);
+      });
+      useUIStore.getState().addToast("success", `已从剪贴板创建 ${uniqueFiles.length} 个图片节点`);
+    };
+
+    document.addEventListener("paste", handlePaste, true);
+    return () => document.removeEventListener("paste", handlePaste, true);
+  }, [createImageInputNodeFromFile]);
 
   const onPaneClick = useCallback(() => {
     useGraphStore.getState().clearSelection();
@@ -342,6 +430,8 @@ function CanvasApp() {
       const container = document.querySelector(".react-flow__pane");
       if (!container) return false;
       const handler = (e: Event) => {
+        if (isEditableTarget(e.target) || (e.target as HTMLElement | null)?.closest(".react-flow__node")) return;
+        if (e.target !== container) return;
         e.preventDefault();
         e.stopPropagation();
         const me = e as MouseEvent;
@@ -375,12 +465,8 @@ function CanvasApp() {
       const id = uuid();
       const existingCount = useGraphStore.getState().nodes.filter((n) => n.type === type).length;
       let defaultName: string;
-      if (type === "input-image") {
-        defaultName = `图片${existingCount + 1}`;
-      } else if (type === "video-input") {
-        defaultName = `视频${existingCount + 1}`;
-      } else if (type === "audio-input") {
-        defaultName = `音频${existingCount + 1}`;
+      if (type === "input-image" || type === "video-input" || type === "audio-input") {
+        defaultName = getNextMaterialName(useGraphStore.getState().nodes, type);
       } else {
         defaultName = existingCount > 0
           ? `${NODE_TYPE_LABELS[type]} ${existingCount + 1}`
@@ -389,13 +475,8 @@ function CanvasApp() {
       const nodeSettings = getDefaultSettings(type);
       // Auto-assign materialOrder for resource input nodes
       if (type === "input-image" || type === "video-input" || type === "audio-input") {
-        const maxOrder = useGraphStore.getState().nodes
-          .filter((n) => n.type === type)
-          .reduce((max, n) => {
-            const ord = (n.settings as Record<string, unknown>)?.materialOrder as number ?? 0;
-            return ord > max ? ord : max;
-          }, 0);
-        (nodeSettings as Record<string, unknown>).materialOrder = maxOrder + 1;
+        (nodeSettings as Record<string, unknown>).materialOrder = getNextMaterialOrder(useGraphStore.getState().nodes, type);
+        (nodeSettings as Record<string, unknown>).fileName = getMaterialFileName(defaultName, type);
       }
       const node: CanvasNode = {
         id,
@@ -676,6 +757,7 @@ function CanvasApp() {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Strict}
+          noDragClassName="nodrag"
           fitView
           minZoom={0.1}
           maxZoom={3}

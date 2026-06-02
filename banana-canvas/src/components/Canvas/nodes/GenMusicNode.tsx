@@ -13,6 +13,7 @@ import { buildAnchorText } from "../../../hooks/useAnchorText";
 import { NODE_TYPE_LABELS } from "../../../types/node";
 import type { CanvasEdge, NodeType } from "../../../types/node";
 import { stripReferenceMention } from "./referenceRemoval";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 
 const MUSIC_MODELS = [
   { value: "musicgen", label: "MusicGen" },
@@ -33,6 +34,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
 
   // @-mention state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const mentionableNodes = useMemo(
@@ -68,8 +70,10 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && mentionableNodes.length > 0) {
       setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+      setMentionMenuPosition(getCaretMenuPosition(e.target));
     } else {
       setAtQuery(null);
+      setMentionMenuPosition(null);
     }
   }, [updateSettings, mentionableNodes.length]);
 
@@ -100,6 +104,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
 
     updateSettings({ prompt: newVal });
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const newPos = before.length + refName.length + 2;
       textareaRef.current?.focus();
@@ -201,15 +206,17 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
               }
               if (atQuery && e.key === "Escape") {
                 setAtQuery(null);
+                setMentionMenuPosition(null);
               }
             }} />
           {atQuery && filteredMentions.length > 0 && (
             <div
-              className="absolute left-0 right-0 z-50 rounded-lg border shadow-lg overflow-hidden"
+              className="nodrag rounded-lg border shadow-lg overflow-hidden"
               style={{
-                top: "100%",
-                background: isDark ? "#27272a" : "#ffffff",
-                borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+                ...caretMenuStyle(mentionMenuPosition, {
+                  background: isDark ? "#27272a" : "#ffffff",
+                  borderColor: isDark ? "#3f3f46" : "#d4d4d8",
+                }),
               }}
             >
               {filteredMentions.map((node) => (

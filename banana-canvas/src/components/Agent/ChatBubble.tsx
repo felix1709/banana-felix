@@ -47,7 +47,7 @@ export const ChatBubble = memo(function ChatBubble({ message, streaming, streami
       )}
       <div
         style={{
-          maxWidth: "85%",
+          maxWidth: "min(92%, 620px)",
           padding: "8px 12px",
           borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
           background: isUser ? "#3b82f6" : "#27272a",
@@ -55,7 +55,9 @@ export const ChatBubble = memo(function ChatBubble({ message, streaming, streami
           fontSize: 13,
           lineHeight: 1.5,
           wordBreak: "break-word",
+          overflowWrap: "anywhere",
           whiteSpace: "pre-wrap",
+          height: "auto",
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
         }}
       >

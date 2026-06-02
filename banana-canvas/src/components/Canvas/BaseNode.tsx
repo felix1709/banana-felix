@@ -231,7 +231,7 @@ export const BaseNode = memo(function BaseNode({
 
       {/* Header */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg border-b"
+        className="node-drag-handle flex items-center gap-2 px-3 py-1.5 rounded-t-lg border-b"
         style={{
           background: isDark ? "#27272a" : "#f4f4f5",
           borderColor: selected ? "#3b82f6" : isDark ? "#3f3f46" : "#d4d4d8",
@@ -284,11 +284,11 @@ export const BaseNode = memo(function BaseNode({
           </span>
         )}
         {titleCenter && <div className="flex-1 text-center truncate">{titleCenter}</div>}
-        {actions && <div className="ml-auto shrink-0 flex items-center gap-1">{actions}</div>}
+        {actions && <div className="nodrag ml-auto shrink-0 flex items-center gap-1">{actions}</div>}
       </div>
 
       {/* Content */}
-      <div className="p-2">
+      <div className="p-2 nodrag">
         {children}
       </div>
 

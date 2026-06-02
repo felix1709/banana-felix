@@ -18,6 +18,7 @@ import type { CanvasEdge, NodeType } from "../../../types/node";
 import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
 import { buildVideoOutputNodeAndEdge } from "./videoOutputNode";
 import { stripReferenceMention } from "./referenceRemoval";
+import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 
 // ── Preset styles ──
 
@@ -49,6 +50,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
   // @-mention state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
@@ -99,8 +101,10 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && mentionableNodes.length > 0) {
       setAtQuery({ index: pos - atMatch[0].length, text: atMatch[1].toLowerCase() });
+      setMentionMenuPosition(getCaretMenuPosition(e.target));
     } else {
       setAtQuery(null);
+      setMentionMenuPosition(null);
     }
   }, [id, updateNode, setXyNodes, mentionableNodes.length]);
 
@@ -136,6 +140,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     updateNode(id, { prompt: newPrompt });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newPrompt } } : n));
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const newPos = newPrompt.length;
       textareaRef.current?.focus();
@@ -171,6 +176,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     updateNode(id, { prompt: newVal });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
     setAtQuery(null);
+    setMentionMenuPosition(null);
     setTimeout(() => {
       const newPos = before.length + refName.length + 2;
       textareaRef.current?.focus();
@@ -560,15 +566,18 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               e.preventDefault();
               insertMention(filteredMentions[0].nodeName);
             }
-            if (atQuery && e.key === "Escape") setAtQuery(null);
+            if (atQuery && e.key === "Escape") {
+              setAtQuery(null);
+              setMentionMenuPosition(null);
+            }
           }}
         />
         {/* @-mention dropdown */}
         {atQuery && filteredMentions.length > 0 && (
           <div className="nodrag" style={{
-            position: "absolute", left: 0, right: 0, top: "100%", zIndex: 50,
-            background: inputBg, border: `1px solid ${border}`, borderRadius: 6,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)", overflow: "hidden",
+            ...caretMenuStyle(mentionMenuPosition, { background: inputBg, borderColor: border }),
+            border: `1px solid ${border}`, borderRadius: 6,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
           }}>
             {filteredMentions.map((node) => (
               <button key={node.nodeId} type="button"

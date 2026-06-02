@@ -11,6 +11,7 @@ import { reverseImagePrompt } from "../../../services/apiService";
 import { toXyEdge, toXyNode } from "../../../utils/nodeConvert";
 import { getDefaultSettings, NODE_DEFAULT_SIZES, type CanvasEdge, type CanvasNode } from "../../../types/node";
 import type { InputImageSettings } from "../../../types/settings";
+import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 
 export const InputImageNode = memo(function InputImageNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -32,14 +33,25 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
 
   const imageUrl = settings.imageUrl ?? "";
   const fileName = settings.fileName ?? "";
+  const resolveImageMaterialMeta = useCallback(() => {
+    const currentNode = useGraphStore.getState().nodes.find((node) => node.id === id);
+    const currentName = currentNode?.nodeName ?? "";
+    const nodeName = /^图片\d+$/.test(currentName)
+      ? currentName
+      : getNextMaterialName(useGraphStore.getState().nodes, "input-image");
+    const materialOrder = (currentNode?.settings as Record<string, unknown> | undefined)?.materialOrder as number | undefined;
+    return {
+      nodeName,
+      fileName: getMaterialFileName(nodeName, "input-image"),
+      materialOrder: materialOrder && materialOrder > 0
+        ? materialOrder
+        : getNextMaterialOrder(useGraphStore.getState().nodes, "input-image"),
+    };
+  }, [id]);
 
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
-
-  const syncContentToXy = useCallback((url: string) => {
-    setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, content: url } } : n));
-  }, [id, setXyNodes]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,13 +61,14 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
       const reader = new FileReader();
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string;
-        updateSettings({ source: "upload", imageUrl: dataUrl, fileName: file.name });
-        updateNode(id, { content: dataUrl });
-        syncContentToXy(dataUrl);
+        const meta = resolveImageMaterialMeta();
+        updateSettings({ source: "upload", imageUrl: dataUrl, fileName: meta.fileName, materialOrder: meta.materialOrder });
+        updateNode(id, { content: dataUrl, nodeName: meta.nodeName });
+        setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, content: dataUrl, label: meta.nodeName } } : n));
       };
       reader.readAsDataURL(file);
     },
-    [id, updateSettings, updateNode, syncContentToXy],
+    [id, updateSettings, updateNode, resolveImageMaterialMeta, setXyNodes],
   );
 
   const handleDrop = useCallback(
@@ -67,13 +80,14 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
       const reader = new FileReader();
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string;
-        updateSettings({ source: "upload", imageUrl: dataUrl, fileName: file.name });
-        updateNode(id, { content: dataUrl });
-        syncContentToXy(dataUrl);
+        const meta = resolveImageMaterialMeta();
+        updateSettings({ source: "upload", imageUrl: dataUrl, fileName: meta.fileName, materialOrder: meta.materialOrder });
+        updateNode(id, { content: dataUrl, nodeName: meta.nodeName });
+        setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, content: dataUrl, label: meta.nodeName } } : n));
       };
       reader.readAsDataURL(file);
     },
-    [id, updateSettings, updateNode, syncContentToXy],
+    [id, updateSettings, updateNode, resolveImageMaterialMeta, setXyNodes],
   );
 
   // Move material order up/down
