@@ -22,6 +22,7 @@ import { getIncomingReferenceEdgeIdsToRemove, stripReferenceMention } from "./re
 import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
+import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
 
 export const GenImageNode = memo(function GenImageNode({ id, data, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -161,12 +162,14 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
 
   const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+    const selection = readTextareaSelection(e.target, val.length);
     // User manually edited → mark as not auto
     updateSettings({ localPrompt: val, isAutoPrompt: false });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: val } } : n));
+    restoreTextareaSelection(textareaRef.current, selection.start);
 
     // Detect @-mention
-    const pos = e.target.selectionStart;
+    const pos = selection.start;
     const textBefore = val.slice(0, pos);
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && mentionableNodes.length > 0) {
@@ -179,10 +182,9 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
   }, [id, updateSettings, setXyNodes, mentionableNodes.length]);
 
   const insertMention = useCallback((refName: string) => {
-    if (!atQuery || !textareaRef.current) return;
-    const before = settings.localPrompt.slice(0, atQuery.index);
-    const after = settings.localPrompt.slice(textareaRef.current.selectionStart);
-    const newVal = `${before}@${refName} ${after}`;
+    const currentText = textareaRef.current?.value ?? settings.localPrompt ?? "";
+    const selection = readTextareaSelection(textareaRef.current, currentText.length);
+    const { nextText: newVal, cursor } = insertMentionAtSelection(currentText, refName, selection, atQuery);
 
     // Auto-connect: create edge if not already connected
     const mentionedNode = mentionableNodes.find((n) => n.nodeName === refName);
@@ -209,11 +211,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
     setAtQuery(null);
     setMentionMenuPosition(null);
-    setTimeout(() => {
-      const newPos = before.length + refName.length + 2;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(newPos, newPos);
-    }, 0);
+    restoreTextareaSelection(textareaRef.current, cursor);
   }, [atQuery, settings.localPrompt, id, updateSettings, setXyNodes, setXyEdges, mentionableNodes]);
 
   // Re-enable auto-sync button
@@ -550,10 +548,12 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
                   borderColor: isDark ? "#4c1d95" : "#c4b5fd",
                 }}
                 onClick={() => {
-                  const newVal = (settings.localPrompt ?? "") + `@${ref.name} `;
+                  const currentText = textareaRef.current?.value ?? settings.localPrompt ?? "";
+                  const selection = readTextareaSelection(textareaRef.current, currentText.length);
+                  const { nextText: newVal, cursor } = insertMentionAtSelection(currentText, ref.name, selection);
                   updateSettings({ localPrompt: newVal, isAutoPrompt: false });
                   setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
-                  textareaRef.current?.focus();
+                  restoreTextareaSelection(textareaRef.current, cursor);
                 }}
                 title={`点击插入 @${ref.name}`}
               >

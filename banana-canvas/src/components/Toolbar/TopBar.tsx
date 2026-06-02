@@ -17,6 +17,7 @@ import {
 import { getAutoSaveStatusText } from "../../services/projectAutoSave";
 import { saveTemporarySnapshotNow } from "../../hooks/useProjectAutoSave";
 import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
+import { getUiTheme, inputControlStyle, separatorStyle, statusPillStyle, toolbarButtonStyle } from "../../styles/uiTheme";
 
 interface TopBarProps {
   onOpenApiSettings: () => void;
@@ -29,6 +30,7 @@ const isTauri = "__TAURI_INTERNALS__" in window;
 export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpdate }: TopBarProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
+  const ui = getUiTheme(isDark);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
   const addToast = useUIStore((s) => s.addToast);
 
@@ -190,23 +192,8 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     }
   }, []);
 
-  const btnBase: React.CSSProperties = {
-    background: "transparent",
-    color: isDark ? "#a1a1aa" : "#71717a",
-    border: "none",
-    cursor: "pointer",
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 4,
-    whiteSpace: "nowrap",
-  };
-
-  const separator: React.CSSProperties = {
-    width: 1,
-    height: 16,
-    background: isDark ? "#27272a" : "#e4e4e7",
-    margin: "0 2px",
-  };
+  const btnBase = toolbarButtonStyle(ui);
+  const separator = separatorStyle(ui);
 
   const autoSaveText = getAutoSaveStatusText({
     mode: autoSaveMode,
@@ -214,26 +201,24 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     status: autoSaveStatus,
   });
 
-  const autoSaveColor =
+  const autoSaveTone =
     autoSaveStatus === "error"
-      ? "#ef4444"
-      : autoSaveStatus === "saving"
-        ? "#f97316"
-        : autoSaveMode === "temporary"
-          ? (isDark ? "#facc15" : "#ca8a04")
-          : "#22c55e";
+      ? "danger"
+      : autoSaveStatus === "saving" || autoSaveMode === "temporary"
+        ? "warning"
+        : "success";
 
   return (
     <div
       className="fixed top-0 left-0 right-0 flex items-center gap-1 px-2 z-[100]"
       style={{
         height: 36,
-        background: isDark ? "#09090b" : "#ffffff",
-        borderBottom: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`,
+        background: ui.colors.panel,
+        borderBottom: `1px solid ${ui.colors.borderSubtle}`,
       }}
     >
       {/* Left: project name + file operations */}
-      <span style={{ color: isDark ? "#facc15" : "#ca8a04", fontSize: 14, marginRight: 4 }}>&#x1F34C;</span>
+      <span style={{ color: ui.colors.warning, fontSize: 14, marginRight: 4 }}>&#x1F34C;</span>
       {editing ? (
         <input
           autoFocus
@@ -244,24 +229,26 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
           onBlur={commitEdit}
           onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
           className="text-xs px-1 py-0.5 rounded border outline-none"
-          style={{ width: 140, background: isDark ? "#27272a" : "#f4f4f5", borderColor: isDark ? "#3f3f46" : "#d4d4d8", color: isDark ? "#e4e4e7" : "#18181b" }}
+          style={{ width: 140, ...inputControlStyle(ui, true) }}
         />
       ) : (
-        <button type="button" onClick={startEdit} style={{ ...btnBase, color: isDark ? "#f4f4f5" : "#18181b", fontWeight: 500 }}>
+        <button
+          type="button"
+          onClick={startEdit}
+          style={{
+            ...btnBase,
+            color: ui.colors.text,
+            fontWeight: 600,
+            background: ui.colors.creativeSoft,
+            borderColor: isDark ? "rgba(249,115,22,0.28)" : "rgba(249,115,22,0.22)",
+          }}
+        >
           {projectName}{modified ? " *" : ""}
         </button>
       )}
       <span
         title={autoSaveStatus === "error" && autoSaveError ? autoSaveError : autoSaveText}
-        style={{
-          fontSize: 10,
-          color: autoSaveColor,
-          border: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`,
-          borderRadius: 999,
-          padding: "1px 6px",
-          whiteSpace: "nowrap",
-          background: isDark ? "#18181b" : "#fafafa",
-        }}
+        style={statusPillStyle(ui, autoSaveTone)}
       >
         {autoSaveText}
       </span>
@@ -284,9 +271,9 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
       <button type="button" onClick={onCheckUpdate} style={btnBase} title="检查更新">🔄 更新</button>
 
       {/* Zoom */}
-      <div className="flex items-center gap-0.5" style={{ borderLeft: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`, paddingLeft: 4, marginLeft: 4 }}>
+      <div className="flex items-center gap-0.5" style={{ borderLeft: `1px solid ${ui.colors.borderSubtle}`, paddingLeft: 4, marginLeft: 4 }}>
         <button type="button" onClick={() => zoomOut()} style={btnBase} title="缩小">−</button>
-        <button type="button" onClick={() => fitView()} style={{ ...btnBase, fontSize: 10 }} title="适应视口">Fit</button>
+        <button type="button" onClick={() => fitView()} style={{ ...btnBase, fontSize: 10, minWidth: 34 }} title="适应视口">Fit</button>
         <button type="button" onClick={() => zoomIn()} style={btnBase} title="放大">+</button>
       </div>
 

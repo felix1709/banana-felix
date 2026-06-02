@@ -19,6 +19,7 @@ import { buildCanvasAnchorText } from "../../../hooks/useAnchorText";
 import { stripReferenceMention } from "./referenceRemoval";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
+import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
 
 // ── Constants ──
 
@@ -335,11 +336,9 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
   }, [atQuery, mentionableNodes]);
 
   const insertMention = useCallback((refName: string) => {
-    if (!atQuery || !promptRef.current) return;
-    const before = settings.canvasPrompt.slice(0, atQuery.index);
-    const selStart = promptRef.current.selectionStart;
-    const after = settings.canvasPrompt.slice(selStart);
-    const newVal = `${before}@${refName} ${after}`;
+    const currentText = promptRef.current?.value ?? settings.canvasPrompt;
+    const selection = readTextareaSelection(promptRef.current, currentText.length);
+    const { nextText: newVal, cursor } = insertMentionAtSelection(currentText, refName, selection, atQuery);
 
     // Auto-connect: find the mentioned node and create edge if not connected
     const mentionedNode = mentionableNodes.find((n) => n.nodeName === refName);
@@ -370,11 +369,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
     updateSettings({ canvasPrompt: newVal, ...(newRefBindings !== settings.refBindings ? { refBindings: newRefBindings } : {}) });
     setAtQuery(null);
     setMentionMenuPosition(null);
-    setTimeout(() => {
-      const newPos = before.length + refName.length + 2;
-      promptRef.current?.focus();
-      promptRef.current?.setSelectionRange(newPos, newPos);
-    }, 0);
+    restoreTextareaSelection(promptRef.current, cursor);
   }, [atQuery, settings.canvasPrompt, settings.refBindings, updateSettings, mentionableNodes, id, setXyEdges]);
 
   // Style helpers
@@ -488,10 +483,11 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
   const insertRefTag = useCallback((binding: RefBinding) => {
     const refNode = allNodes.find((n) => n.id === binding.nodeId);
     const refName = refNode?.nodeName ?? binding.nodeId;
-    const tag = `@${refName}`;
-    if (!settings.canvasPrompt.includes(tag)) {
-      updateSettings({ canvasPrompt: settings.canvasPrompt + tag });
-    }
+    const currentText = promptRef.current?.value ?? settings.canvasPrompt;
+    const selection = readTextareaSelection(promptRef.current, currentText.length);
+    const { nextText, cursor } = insertMentionAtSelection(currentText, refName, selection);
+    updateSettings({ canvasPrompt: nextText });
+    restoreTextareaSelection(promptRef.current, cursor);
   }, [settings.canvasPrompt, allNodes, updateSettings]);
 
   const removeCanvasReference = useCallback((ref: { nodeId: string; nodeName?: string; edgeId?: string }) => {
@@ -1234,8 +1230,10 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
         <div className="relative">
           <textarea ref={promptRef} value={settings.canvasPrompt}
             onChange={(e) => {
+              const selection = readTextareaSelection(e.target, e.target.value.length);
               updateSettings({ canvasPrompt: e.target.value });
-              const pos = e.target.selectionStart;
+              restoreTextareaSelection(promptRef.current, selection.start);
+              const pos = selection.start;
               const textBefore = e.target.value.slice(0, pos);
               const atMatch = textBefore.match(/@([^\s@]*)$/);
               if (atMatch && mentionableNodes.length > 0) {

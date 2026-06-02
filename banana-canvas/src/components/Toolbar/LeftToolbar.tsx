@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useUIStore } from "../../stores/uiStore";
 import { useGraphStore } from "../../stores/graphStore";
+import { getUiTheme, iconButtonStyle, separatorStyle } from "../../styles/uiTheme";
 
 interface LeftToolbarProps {
   onCreateNode: (screenX: number, screenY: number) => void;
@@ -15,6 +16,7 @@ const TOOLS = [
 export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
+  const ui = getUiTheme(isDark);
   const activeTool = useUIStore((s) => s.activeTool);
   const setActiveTool = useUIStore((s) => s.setActiveTool);
   const leftToolbarOpen = useUIStore((s) => s.leftToolbarOpen);
@@ -39,13 +41,14 @@ export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {
           top: 40,
           width: 20,
           height: 40,
-          background: isDark ? "#09090b" : "#ffffff",
-          border: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`,
+          background: ui.colors.panel,
+          border: `1px solid ${ui.colors.borderSubtle}`,
           borderLeft: "none",
-          borderRadius: "0 6px 6px 0",
-          color: isDark ? "#71717a" : "#a1a1aa",
+          borderRadius: `0 ${ui.radii.sm}px ${ui.radii.sm}px 0`,
+          color: ui.colors.textSubtle,
           cursor: "pointer",
           fontSize: 10,
+          boxShadow: ui.shadow.panel,
         }}
       >
         ▸
@@ -53,19 +56,8 @@ export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {
     );
   }
 
-  const btnStyle = (active: boolean): React.CSSProperties => ({
-    width: 28,
-    height: 28,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: "none",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 13,
-    background: active ? "#3b82f6" : "transparent",
-    color: active ? "#fff" : (isDark ? "#a1a1aa" : "#71717a"),
-  });
+  const btnStyle = (active: boolean, tone: "neutral" | "primary" | "danger" = "neutral"): React.CSSProperties =>
+    iconButtonStyle(ui, { active, tone });
 
   return (
     <div
@@ -75,16 +67,19 @@ export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {
         top: 36,
         width: 36,
         bottom: 0,
-        background: isDark ? "#09090b" : "#ffffff",
-        borderRight: `1px solid ${isDark ? "#27272a" : "#e4e4e7"}`,
+        background: isDark
+          ? "linear-gradient(180deg, #121217 0%, #0b0b0e 100%)"
+          : "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        borderRight: `1px solid ${ui.colors.borderSubtle}`,
+        boxShadow: isDark ? "2px 0 16px rgba(0,0,0,0.24)" : "2px 0 16px rgba(24,24,27,0.08)",
       }}
     >
       {/* Create node */}
-      <button ref={addBtnRef} type="button" onClick={handleCreateClick} style={btnStyle(false)} title="创建节点">
+      <button ref={addBtnRef} type="button" onClick={handleCreateClick} style={btnStyle(true, "primary")} title="创建节点">
         ＋
       </button>
 
-      <div style={{ width: 20, height: 1, background: isDark ? "#27272a" : "#e4e4e7", margin: "4px 0" }} />
+      <div style={separatorStyle(ui, false)} />
 
       {/* Tools */}
       {TOOLS.map((tool) => (
@@ -99,13 +94,13 @@ export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {
         </button>
       ))}
 
-      <div style={{ width: 20, height: 1, background: isDark ? "#27272a" : "#e4e4e7", margin: "4px 0" }} />
+      <div style={separatorStyle(ui, false)} />
 
       {/* Clear doodles */}
       <button
         type="button"
         onClick={() => useGraphStore.getState().clearDoodleStrokes()}
-        style={btnStyle(false)}
+        style={btnStyle(false, "danger")}
         title="清空画笔内容"
       >
         🗑

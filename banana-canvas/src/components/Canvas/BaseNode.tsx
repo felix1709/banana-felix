@@ -4,6 +4,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { useGraphStore } from "../../stores/graphStore";
 import { NODE_TYPE_LABELS } from "../../types/node";
 import type { NodeType } from "../../types/node";
+import { getUiTheme, inputControlStyle, statusPillStyle } from "../../styles/uiTheme";
 
 export interface PortConfig {
   id: string;
@@ -90,6 +91,7 @@ export const BaseNode = memo(function BaseNode({
 }: BaseNodeProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
+  const ui = getUiTheme(isDark);
   const connectingTarget = useUIStore((s) => s.connectingTarget);
   const isTarget = connectingTarget === id;
 
@@ -116,8 +118,8 @@ export const BaseNode = memo(function BaseNode({
     width: 10,
     height: 10,
     borderRadius: "50%",
-    background: isDark ? "#52525b" : "#a1a1aa",
-    border: `2px solid ${isDark ? "#71717a" : "#d4d4d8"}`,
+    background: ui.colors.borderStrong,
+    border: `2px solid ${ui.colors.border}`,
     top: `${(port?.position ?? 0.5) * 100}%`,
     transform: "translate(-50%, -50%)",
     ...(position === Position.Left ? { left: 0 } : { right: 0, transform: "translate(50%, -50%)" }),
@@ -144,7 +146,7 @@ export const BaseNode = memo(function BaseNode({
           <span
             className="absolute text-[9px] whitespace-nowrap pointer-events-none"
             style={{
-              color: isDark ? "#a1a1aa" : "#71717a",
+              color: ui.colors.textMuted,
               ...(position === Position.Left
                 ? { left: 12, top: -2 }
                 : { right: 12, top: -2 }),
@@ -209,21 +211,28 @@ export const BaseNode = memo(function BaseNode({
     setEditing(false);
   }, [id, editName, setXyNodes]);
 
+  const borderColor = isTarget
+    ? ui.colors.success
+    : selected
+      ? ui.colors.primary
+      : ui.colors.border;
+  const boxShadow = isTarget
+    ? `0 0 0 2px ${ui.colors.successSoft}, ${ui.shadow.node}`
+    : selected
+      ? `${ui.shadow.selected}, ${ui.shadow.node}`
+      : ui.shadow.node;
+  const headerAccent = isTarget ? ui.colors.success : selected ? ui.colors.primary : ui.colors.creative;
+
   return (
     <div
-      className={`rounded-lg border shadow-lg transition-all duration-150 ${
-        isTarget
-          ? "shadow-green-400/40 border-green-400 ring-2 ring-green-400/40"
-          : selected
-            ? "shadow-blue-500/30 border-blue-500 ring-2 ring-blue-500/40"
-            : isDark
-              ? "border-zinc-700"
-              : "border-zinc-300"
-      }`}
+      className="rounded-lg border transition-all duration-150"
       style={{
-        background: isDark ? "#18181b" : "#ffffff",
+        background: ui.colors.surface,
+        borderColor,
+        boxShadow,
         minWidth: 120,
         minHeight: 60,
+        overflow: "hidden",
       }}
     >
       <style>{`@keyframes gen-pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
@@ -233,8 +242,12 @@ export const BaseNode = memo(function BaseNode({
       <div
         className="node-drag-handle flex items-center gap-2 px-3 py-1.5 rounded-t-lg border-b"
         style={{
-          background: isDark ? "#27272a" : "#f4f4f5",
-          borderColor: selected ? "#3b82f6" : isDark ? "#3f3f46" : "#d4d4d8",
+          background: isDark
+            ? "linear-gradient(180deg, #303038 0%, #24242a 100%)"
+            : "linear-gradient(180deg, #ffffff 0%, #f4f4f5 100%)",
+          borderColor: selected ? ui.colors.primary : ui.colors.border,
+          borderTop: `2px solid ${headerAccent}`,
+          minHeight: 30,
         }}
       >
         {editing ? (
@@ -250,36 +263,32 @@ export const BaseNode = memo(function BaseNode({
             title="编辑节点名称"
             placeholder="节点名称"
             className="nodrag text-xs font-medium bg-transparent outline-none border-b border-blue-500 w-28"
-            style={{ color: isDark ? "#f4f4f5" : "#18181b" }}
+            style={{ ...inputControlStyle(ui, true), width: 112, padding: "1px 4px" }}
           />
         ) : (
           <span
             className="text-xs font-medium truncate cursor-text nodrag"
-            style={{ color: isDark ? "#f4f4f5" : "#18181b" }}
+            style={{ color: ui.colors.text }}
             onClick={startEditing}
           >
             {displayName}
           </span>
         )}
         {badge && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={statusPillStyle(ui, "neutral")}>
             {badge}
           </span>
         )}
         {generationStatus === "generating" && (
           <span className="text-[10px] px-1.5 py-0.5 rounded-full nodrag" style={{
-            background: "rgba(239, 68, 68, 0.15)",
-            color: "#ef4444",
+            ...statusPillStyle(ui, "warning"),
             animation: "gen-pulse 1.5s ease-in-out infinite",
           }}>
             正在生成
           </span>
         )}
         {generationStatus === "completed" && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{
-            background: "rgba(34, 197, 94, 0.15)",
-            color: "#22c55e",
-          }}>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={statusPillStyle(ui, "success")}>
             生成完成
           </span>
         )}
@@ -314,9 +323,9 @@ export const BaseNode = memo(function BaseNode({
         onPointerUp={onResizePointerUp}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M9 1L1 9" stroke={isDark ? "#52525b" : "#a1a1aa"} strokeWidth="1.5" strokeLinecap="round"/>
-          <path d="M9 5L5 9" stroke={isDark ? "#52525b" : "#a1a1aa"} strokeWidth="1.5" strokeLinecap="round"/>
-          <path d="M9 9L9 9" stroke={isDark ? "#52525b" : "#a1a1aa"} strokeWidth="2" strokeLinecap="round"/>
+          <path d="M9 1L1 9" stroke={ui.colors.textDisabled} strokeWidth="1.5" strokeLinecap="round"/>
+          <path d="M9 5L5 9" stroke={ui.colors.textDisabled} strokeWidth="1.5" strokeLinecap="round"/>
+          <path d="M9 9L9 9" stroke={ui.colors.textDisabled} strokeWidth="2" strokeLinecap="round"/>
         </svg>
       </div>
 
@@ -333,9 +342,9 @@ export const BaseNode = memo(function BaseNode({
             width: 20,
             height: 20,
             borderRadius: "50%",
-            border: "2px solid #18181b",
-            background: "#ef4444",
-            color: "#ffffff",
+            border: `2px solid ${ui.colors.surface}`,
+            background: ui.colors.danger,
+            color: ui.colors.white,
             fontSize: 10,
             fontWeight: 700,
             lineHeight: 1,

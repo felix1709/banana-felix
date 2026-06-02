@@ -41,6 +41,9 @@ async function apiRequest<T>(options: ApiRequestOptions): Promise<T> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    if (response.status === 413) {
+      throw new Error("请求体过大 (413)：当前提交的图片/视频数据超过了服务器限制。已尽量减少重复传参；如果仍然出现，请改用在线图片 URL，或在你自己的 Nginx/网关中调高 client_max_body_size。");
+    }
     throw new Error(`API 错误 (${response.status}): ${errorText}`);
   }
 
@@ -526,6 +529,21 @@ type VideoContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string }; role: "user" | "reference" };
 
+function isInlineMediaUrl(url: string | undefined): boolean {
+  return typeof url === "string" && /^data:/i.test(url);
+}
+
+function hasInlineVideoMedia(req: VideoGenerateRequest): boolean {
+  return [
+    req.startImage,
+    req.endImage,
+    req.referenceImageUrl,
+    req.referenceVideoUrl,
+    req.referenceAudioUrl,
+    ...(req.images ?? []),
+  ].some(isInlineMediaUrl);
+}
+
 function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
   const parts: VideoContentPart[] = [{ type: "text", text: req.prompt }];
   const pushImage = (url: string | undefined, role: "user" | "reference") => {
@@ -546,8 +564,12 @@ function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
 export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<string, unknown> {
   const firstFrameImage = req.startImage || req.referenceImageUrl || undefined;
   const contentParts = buildVideoContentParts(req);
+  const compactMediaAliases = hasInlineVideoMedia(req);
+  const shouldAliasMedia = (url: string | undefined) => url && !isInlineMediaUrl(url);
+  const aliasImages = (req.images ?? []).filter((url) => !isInlineMediaUrl(url));
   const body: Record<string, unknown> = {
-    ...req,
+    model: req.model,
+    prompt: req.prompt,
     negative_prompt: req.negativePrompt || undefined,
     duration: req.duration,
     duration_seconds: req.duration,
@@ -564,19 +586,19 @@ export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<stri
     smart_duration: req.smartDuration,
     referenceMode: req.referenceMode,
     reference_mode: req.referenceMode,
-    image_url: firstFrameImage,
-    first_frame_image: firstFrameImage,
-    start_image: firstFrameImage,
-    endImage: req.endImage || undefined,
-    end_image: req.endImage || undefined,
-    lastframe_image: req.endImage || undefined,
-    last_frame_image: req.endImage || undefined,
-    audio_url: req.referenceAudioUrl || undefined,
-    video_url: req.referenceVideoUrl || undefined,
-    images: req.images && req.images.length > 0 ? req.images : undefined,
-    image_urls: req.images && req.images.length > 0 ? req.images : undefined,
+    image_url: shouldAliasMedia(firstFrameImage) ? firstFrameImage : undefined,
+    first_frame_image: shouldAliasMedia(firstFrameImage) ? firstFrameImage : undefined,
+    start_image: shouldAliasMedia(firstFrameImage) ? firstFrameImage : undefined,
+    endImage: shouldAliasMedia(req.endImage) ? req.endImage : undefined,
+    end_image: shouldAliasMedia(req.endImage) ? req.endImage : undefined,
+    lastframe_image: shouldAliasMedia(req.endImage) ? req.endImage : undefined,
+    last_frame_image: shouldAliasMedia(req.endImage) ? req.endImage : undefined,
+    audio_url: shouldAliasMedia(req.referenceAudioUrl) ? req.referenceAudioUrl : undefined,
+    video_url: shouldAliasMedia(req.referenceVideoUrl) ? req.referenceVideoUrl : undefined,
+    images: !compactMediaAliases && aliasImages.length > 0 ? aliasImages : undefined,
+    image_urls: !compactMediaAliases && aliasImages.length > 0 ? aliasImages : undefined,
     content: contentParts.length > 1 ? contentParts : undefined,
-    contents: contentParts.length > 1 ? contentParts : undefined,
+    contents: !compactMediaAliases && contentParts.length > 1 ? contentParts : undefined,
   };
 
   for (const key of Object.keys(body)) {
@@ -656,6 +678,8 @@ async function generateVideoViaImageEndpoint(
   opts: { overrideBaseUrl?: string; overrideApiKey?: string },
 ): Promise<TaskResponse> {
   const contentParts = buildVideoContentParts(req);
+  const compactMediaAliases = hasInlineVideoMedia(req);
+  const aliasImages = (req.images ?? []).filter((url) => !isInlineMediaUrl(url));
   // Build image-generation-style body with video-specific fields
   const body: Record<string, unknown> = {
     model: req.model,
@@ -665,7 +689,7 @@ async function generateVideoViaImageEndpoint(
     aspect_ratio: req.ratio || "16:9",
     ratio: req.ratio || "16:9",
     content: contentParts.length > 1 ? contentParts : undefined,
-    contents: contentParts.length > 1 ? contentParts : undefined,
+    contents: !compactMediaAliases && contentParts.length > 1 ? contentParts : undefined,
   };
   if (req.negativePrompt) body.negative_prompt = req.negativePrompt;
   if (req.duration) body.duration = req.duration;
@@ -673,11 +697,11 @@ async function generateVideoViaImageEndpoint(
   if (req.fps) body.fps = req.fps;
   if (req.resolution) body.resolution = req.resolution;
   if (req.seed !== undefined) body.seed = req.seed;
-  if (req.startImage) body.startImage = req.startImage;
-  if (req.startImage) body.start_image = req.startImage;
-  if (req.startImage) body.first_frame_image = req.startImage;
-  if (req.endImage) body.endImage = req.endImage;
-  if (req.endImage) body.end_image = req.endImage;
+  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.startImage = req.startImage;
+  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.start_image = req.startImage;
+  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.first_frame_image = req.startImage;
+  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.endImage = req.endImage;
+  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.end_image = req.endImage;
   if (req.generateAudio !== undefined) body.generateAudio = req.generateAudio;
   if (req.generateAudio !== undefined) body.generate_audio = req.generateAudio;
   if (req.smartDuration !== undefined) body.smartDuration = req.smartDuration;
@@ -685,15 +709,15 @@ async function generateVideoViaImageEndpoint(
   if (req.referenceMode) body.referenceMode = req.referenceMode;
   if (req.referenceMode) body.reference_mode = req.referenceMode;
   // Reference materials
-  if (req.referenceImageUrl) body.image_url = req.referenceImageUrl;
-  if (req.referenceVideoUrl) body.video_url = req.referenceVideoUrl;
-  if (req.referenceAudioUrl) body.audio_url = req.referenceAudioUrl;
-  if (req.images && req.images.length > 0) body.images = req.images;
-  if (req.images && req.images.length > 0) body.image_urls = req.images;
+  if (req.referenceImageUrl && !isInlineMediaUrl(req.referenceImageUrl)) body.image_url = req.referenceImageUrl;
+  if (req.referenceVideoUrl && !isInlineMediaUrl(req.referenceVideoUrl)) body.video_url = req.referenceVideoUrl;
+  if (req.referenceAudioUrl && !isInlineMediaUrl(req.referenceAudioUrl)) body.audio_url = req.referenceAudioUrl;
+  if (!compactMediaAliases && aliasImages.length > 0) body.images = aliasImages;
+  if (!compactMediaAliases && aliasImages.length > 0) body.image_urls = aliasImages;
   // Compatibility aliases
-  if (req.startImage || req.referenceImageUrl) body.image_url = req.startImage || req.referenceImageUrl;
-  if (req.endImage) body.lastframe_image = req.endImage;
-  if (req.endImage) body.last_frame_image = req.endImage;
+  if ((req.startImage || req.referenceImageUrl) && !isInlineMediaUrl(req.startImage || req.referenceImageUrl)) body.image_url = req.startImage || req.referenceImageUrl;
+  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.lastframe_image = req.endImage;
+  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.last_frame_image = req.endImage;
   if (req.generateAudio !== undefined) body.audio = req.generateAudio;
 
   const result = await apiRequest<{ data?: Array<{ url?: string; b64_json?: string }>; taskId?: string; status?: string; videoUrl?: string; imageUrl?: string; error?: string }>({

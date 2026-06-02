@@ -19,6 +19,7 @@ import { toXyNode, toXyEdge } from "../../../utils/nodeConvert";
 import { buildVideoOutputNodeAndEdge } from "./videoOutputNode";
 import { stripReferenceMention } from "./referenceRemoval";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
+import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
 
 // ── Preset styles ──
 
@@ -93,10 +94,12 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
 
   const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+    const selection = readTextareaSelection(e.target, val.length);
     updateNode(id, { prompt: val });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: val } } : n));
+    restoreTextareaSelection(textareaRef.current, selection.start);
 
-    const pos = e.target.selectionStart;
+    const pos = selection.start;
     const textBefore = val.slice(0, pos);
     const atMatch = textBefore.match(/@([^\s@]*)$/);
     if (atMatch && mentionableNodes.length > 0) {
@@ -116,8 +119,9 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   }, [prompt]);
 
   const appendMentionToPrompt = useCallback((refName: string) => {
-    const currentPrompt = useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
-    const newPrompt = currentPrompt ? `${currentPrompt} @${refName}` : `@${refName}`;
+    const currentPrompt = textareaRef.current?.value ?? useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
+    const selection = readTextareaSelection(textareaRef.current, currentPrompt.length);
+    const { nextText: newPrompt, cursor } = insertMentionAtSelection(currentPrompt, refName, selection);
 
     const mentionedNode = mentionableNodes.find((n) => n.nodeName === refName);
     if (mentionedNode) {
@@ -141,19 +145,13 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newPrompt } } : n));
     setAtQuery(null);
     setMentionMenuPosition(null);
-    setTimeout(() => {
-      const newPos = newPrompt.length;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(newPos, newPos);
-    }, 0);
+    restoreTextareaSelection(textareaRef.current, cursor);
   }, [id, mentionableNodes, updateNode, setXyNodes, setXyEdges]);
 
   const insertMention = useCallback((refName: string) => {
-    if (!atQuery || !textareaRef.current) return;
-    const currentPrompt = useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
-    const before = currentPrompt.slice(0, atQuery.index);
-    const after = currentPrompt.slice(textareaRef.current.selectionStart);
-    const newVal = `${before}@${refName} ${after}`;
+    const currentPrompt = textareaRef.current?.value ?? useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
+    const selection = readTextareaSelection(textareaRef.current, currentPrompt.length);
+    const { nextText: newVal, cursor } = insertMentionAtSelection(currentPrompt, refName, selection, atQuery);
 
     const mentionedNode = mentionableNodes.find((n) => n.nodeName === refName);
     if (mentionedNode) {
@@ -177,11 +175,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
     setAtQuery(null);
     setMentionMenuPosition(null);
-    setTimeout(() => {
-      const newPos = before.length + refName.length + 2;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(newPos, newPos);
-    }, 0);
+    restoreTextareaSelection(textareaRef.current, cursor);
   }, [atQuery, id, updateNode, setXyNodes, setXyEdges, mentionableNodes]);
 
   const applyStyle = useCallback((style: typeof VIDEO_STYLES[number]) => {

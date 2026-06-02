@@ -13,6 +13,7 @@ import type { CanvasEdge, NodeType } from "../../../types/node";
 import type { TextNodeSettings } from "../../../types/settings";
 import { stripReferenceMention } from "./referenceRemoval";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
+import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
 
 interface AtQuery {
   index: number;
@@ -146,10 +147,12 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const val = e.target.value;
+      const selection = readTextareaSelection(e.target, val.length);
       setLocalText(val);
       syncToStore(val);
+      restoreTextareaSelection(textareaRef.current, selection.start);
 
-      const pos = e.target.selectionStart;
+      const pos = selection.start;
       const textBefore = val.slice(0, pos);
       const atMatch = textBefore.match(/@([^\s@]*)$/);
       if (atMatch && mentionableNodes.length > 0) {
@@ -165,11 +168,9 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
 
   const insertMention = useCallback(
     (refName: string) => {
-      if (!atQuery || !textareaRef.current) return;
-      const cursorPos = textareaRef.current.selectionStart;
-      const before = localText.slice(0, atQuery.index);
-      const after = localText.slice(cursorPos);
-      const newVal = `${before}@${refName} ${after}`;
+      const currentText = textareaRef.current?.value ?? localText;
+      const selection = readTextareaSelection(textareaRef.current, currentText.length);
+      const { nextText: newVal, cursor } = insertMentionAtSelection(currentText, refName, selection, atQuery);
       const mentionedNode = mentionableNodes.find((n) => n.nodeName === refName);
       if (mentionedNode) {
         const existingEdges = useGraphStore.getState().edges;
@@ -199,11 +200,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
       syncToStore(newVal);
       setAtQuery(null);
       setMentionMenuPosition(null);
-      setTimeout(() => {
-        const newPos = before.length + refName.length + 2;
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(newPos, newPos);
-      }, 0);
+      restoreTextareaSelection(textareaRef.current, cursor);
     },
     [atQuery, id, localText, mentionableNodes, setXyEdges, syncToStore],
   );
