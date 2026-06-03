@@ -21,7 +21,7 @@ const request = buildPanoramaImageRequest({
 
 assert(request.size === "4096x2048", "request sends the high-resolution panorama size");
 assert(request.quality === "high", "request asks the model for high quality output");
-assert(request.output_format === "PNG", "request asks for a lossless output format");
+assert(request.output_format === "png", "request asks for a supported lossless output format");
 assert(request.referenceImage === "data:image/png;base64,ref", "request keeps the source reference image");
 assert(request.extra?.high_resolution === true, "request passes high-resolution enhancement flag");
 assert(request.extra?.detail_enhance === true, "request passes detail enhancement flag");

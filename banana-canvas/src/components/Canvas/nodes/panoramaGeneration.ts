@@ -58,7 +58,7 @@ export function buildPanoramaImageRequest({
     size: spec.size,
     ratio: spec.ratio,
     quality: "high",
-    output_format: "PNG",
+    output_format: "png",
     referenceImage: sourceImage || undefined,
     extra: { ...PANORAMA_HD_EXTRA },
   };

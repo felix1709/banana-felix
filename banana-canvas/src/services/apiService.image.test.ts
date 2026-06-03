@@ -25,7 +25,7 @@ assert(body.model === "gpt-image-2", "keeps selected image model");
 assert(body.prompt === "high quality panorama", "keeps full prompt");
 assert(body.size === "4096x2048", "keeps requested high-resolution size");
 assert(body.quality === "high", "keeps high quality setting");
-assert(body.output_format === "PNG", "keeps lossless output format");
+assert(body.output_format === "png", "normalizes output format to the API-supported lowercase value");
 assert(body.high_resolution === true, "passes high-resolution enhancement flag");
 assert(body.detail_enhance === true, "passes detail enhancement flag");
 assert(body.steps === 40, "passes sampling steps");

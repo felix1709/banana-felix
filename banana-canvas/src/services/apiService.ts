@@ -96,7 +96,7 @@ export function buildImageGenerationBody(req: ImageGenerateRequest, defaultSize 
   };
   if (req.quality) body.quality = req.quality;
   if (req.style) body.style = req.style;
-  if (req.output_format) body.output_format = req.output_format;
+  if (req.output_format) body.output_format = req.output_format.toLowerCase();
   if (req.moderation) body.moderation = req.moderation;
   if (req.extra) {
     for (const [key, value] of Object.entries(req.extra)) {
