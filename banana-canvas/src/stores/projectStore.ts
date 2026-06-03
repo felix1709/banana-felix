@@ -31,7 +31,7 @@ export const useProjectStore = create<ProjectState>()(
     lastSavedAt: null,
     lastAutoSavedAt: null,
     autoSaveMode: "temporary",
-    autoSaveStatus: "saved",
+    autoSaveStatus: "idle",
     autoSaveError: "",
 
     setProjectPath: (path) =>
@@ -57,7 +57,7 @@ export const useProjectStore = create<ProjectState>()(
         state.lastSavedAt = Date.now();
         state.lastAutoSavedAt = state.lastSavedAt;
         state.autoSaveMode = state.projectPath ? "project" : "temporary";
-        state.autoSaveStatus = "saved";
+        state.autoSaveStatus = state.projectPath ? "saved" : "idle";
         state.autoSaveError = "";
       }),
 
@@ -86,7 +86,7 @@ export const useProjectStore = create<ProjectState>()(
     setLastAutoSavedAt: (ts) =>
       set((state) => {
         state.lastAutoSavedAt = ts;
-        state.autoSaveStatus = "saved";
+        state.autoSaveStatus = "idle";
       }),
 
     resetProject: () =>

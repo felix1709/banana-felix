@@ -254,6 +254,24 @@ export function parsePromptOptimizeOutput(data: unknown): PromptOptimizeOutput |
   return null;
 }
 
+const PROMPT_OPTIMIZE_INTENT_RE = /(?:\u4f18\u5316\s*\u63d0\u793a\u8bcd|\u4f18\u5316\s*prompt|prompt\s*optimi[sz]e|\u6da6\u8272\s*\u63d0\u793a\u8bcd|\u6539\u5199\s*\u63d0\u793a\u8bcd)/i;
+
+export function isPromptOptimizeIntent(text: string): boolean {
+  return PROMPT_OPTIMIZE_INTENT_RE.test(text);
+}
+
+export function extractPromptOptimizeText(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(PROMPT_OPTIMIZE_INTENT_RE);
+  if (!match || match.index === undefined) return trimmed;
+
+  const before = trimmed.slice(0, match.index).trim();
+  const after = trimmed.slice(match.index + match[0].length).replace(/^[\s:：,，.。;；\-_\n]+/, "").trim();
+  if (after) return after;
+
+  return before.replace(/[\s:：,，.。;；\-_]+$/, "").trim();
+}
+
 // ── [OPTIONS] 解析 ──
 
 export function parseOptionsFromText(text: string): { cleanText: string; option: QuickOption | null } {

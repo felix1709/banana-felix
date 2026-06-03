@@ -24,6 +24,13 @@ export interface CubemapLayout {
   faces: Record<CubemapFace, { x: number; y: number; size: number }>;
 }
 
+export type PanoramaSourceFormat = "equirectangular" | "cubemap";
+
+const DIRECT_PREVIEW_LIMITS: Record<PanoramaSourceFormat, { width: number; height: number; pixels: number }> = {
+  equirectangular: { width: 8192, height: 4096, pixels: 48_000_000 },
+  cubemap: { width: 6144, height: 4096, pixels: 32_000_000 },
+};
+
 export function normalizeYaw(yaw: number): number {
   return ((yaw % 360) + 360) % 360;
 }
@@ -62,6 +69,19 @@ export function getDownsampledSize(
     height: Math.max(1, Math.round(height * scale)),
     scale,
   };
+}
+
+export function shouldUseOriginalPanoramaImage(
+  width: number,
+  height: number,
+  format: PanoramaSourceFormat,
+): boolean {
+  const limit = DIRECT_PREVIEW_LIMITS[format];
+  return width > 0
+    && height > 0
+    && width <= limit.width
+    && height <= limit.height
+    && width * height <= limit.pixels;
 }
 
 export function movePanoramaView(

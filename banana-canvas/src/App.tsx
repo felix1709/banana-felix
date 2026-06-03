@@ -65,7 +65,6 @@ function CanvasApp() {
   const performanceMode = useUIStore((s) => s.performanceMode);
   const contextMenu = useUIStore((s) => s.contextMenu);
   const leftToolbarOpen = useUIStore((s) => s.leftToolbarOpen);
-  const setActiveTool = useUIStore((s) => s.setActiveTool);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
 
   const { screenToFlowPosition, getNodes, setNodes, setEdges, setViewport, zoomIn, zoomOut } = useReactFlow();
@@ -634,21 +633,6 @@ function CanvasApp() {
           newNodes.push(toXyNode(dup));
         }
         setNodes((nds) => [...nds, ...newNodes]);
-        return;
-      }
-      // V — select tool
-      if (e.key === "v" || e.key === "V") {
-        setActiveTool("select");
-        return;
-      }
-      // B — brush tool
-      if (e.key === "b" || e.key === "B") {
-        setActiveTool("brush");
-        return;
-      }
-      // E — eraser tool
-      if (e.key === "e" || e.key === "E") {
-        setActiveTool("eraser");
         return;
       }
       // Ctrl+Z — undo

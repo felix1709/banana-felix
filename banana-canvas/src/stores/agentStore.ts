@@ -36,6 +36,7 @@ function persistCurrentSession(state: { activeSessionId: string | null; messages
 
 interface AgentState {
   panelOpen: boolean;
+  panelScrollTop: number;
   // Session management
   sessions: SessionIndexEntry[];
   activeSessionId: string | null;
@@ -51,6 +52,7 @@ interface AgentState {
   openPanel: () => void;
   closePanel: () => void;
   togglePanel: () => void;
+  setPanelScrollTop: (scrollTop: number) => void;
 
   addMessage: (msg: Omit<ChatMessage, "id" | "timestamp">) => void;
   updateLastAssistant: (content: string) => void;
@@ -77,6 +79,7 @@ interface AgentState {
 export const useAgentStore = create<AgentState>()(
   immer((set, _get) => ({
     panelOpen: false,
+    panelScrollTop: 0,
     sessions: initialIndex,
     activeSessionId: initialSession?.id ?? null,
     messages: (initialData?.messages ?? []).slice(-MAX_MESSAGES),
@@ -100,6 +103,11 @@ export const useAgentStore = create<AgentState>()(
     togglePanel: () =>
       set((state) => {
         state.panelOpen = !state.panelOpen;
+      }),
+
+    setPanelScrollTop: (scrollTop) =>
+      set((state) => {
+        state.panelScrollTop = Math.max(0, scrollTop);
       }),
 
     addMessage: (msg) =>

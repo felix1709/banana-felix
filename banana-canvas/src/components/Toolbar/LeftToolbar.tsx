@@ -8,9 +8,9 @@ interface LeftToolbarProps {
 }
 
 const TOOLS = [
-  { id: "select" as const, label: "↖", title: "选择 (V)" },
-  { id: "brush" as const, label: "🖌", title: "画笔 (B)" },
-  { id: "eraser" as const, label: "⌫", title: "橡皮擦 (E)" },
+  { id: "select" as const, label: "\u2196", title: "\u9009\u62e9" },
+  { id: "brush" as const, label: "\ud83d\udd8c\ufe0f", title: "\u753b\u7b14" },
+  { id: "eraser" as const, label: "\u232b", title: "\u6a61\u76ae\u64e6" },
 ];
 
 export function LeftToolbar({ onCreateNode }: LeftToolbarProps) {

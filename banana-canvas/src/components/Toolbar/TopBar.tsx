@@ -15,7 +15,6 @@ import {
   clearTemporaryProject,
 } from "../../services/projectService";
 import { getAutoSaveStatusText } from "../../services/projectAutoSave";
-import { saveTemporarySnapshotNow } from "../../hooks/useProjectAutoSave";
 import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
 import { dedupeCanvasEdges } from "../../utils/edgeDedup";
 import { getUiTheme, inputControlStyle, separatorStyle, statusPillStyle, toolbarButtonStyle } from "../../styles/uiTheme";
@@ -65,7 +64,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
     setNodes([]);
     setEdges([]);
     resetProject();
-    saveTemporarySnapshotNow("未命名项目");
+    clearTemporaryProject();
     addToast("success", "已新建项目");
   }, [confirmDiscard, setNodes, setEdges, resetProject, addToast]);
 

@@ -66,6 +66,7 @@ export interface ImageGenerateRequest {
   referenceImages?: string[];
   sref?: string;
   oref?: string;
+  extra?: Record<string, unknown>;
 }
 
 export interface TaskResponse {
@@ -84,6 +85,32 @@ interface OpenAIImageResponse {
     b64_json?: string;
     revised_prompt?: string;
   }>;
+}
+
+export function buildImageGenerationBody(req: ImageGenerateRequest, defaultSize = "1024x1024"): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: req.model,
+    prompt: req.prompt,
+    n: req.n ?? 1,
+    size: req.size ?? defaultSize,
+  };
+  if (req.quality) body.quality = req.quality;
+  if (req.style) body.style = req.style;
+  if (req.output_format) body.output_format = req.output_format;
+  if (req.moderation) body.moderation = req.moderation;
+  if (req.extra) {
+    for (const [key, value] of Object.entries(req.extra)) {
+      if (value !== undefined && value !== null) body[key] = value;
+    }
+  }
+  return body;
+}
+
+function appendImageGenerationFormFields(formData: FormData, req: ImageGenerateRequest, defaultSize = "1024x1024"): void {
+  const body = buildImageGenerationBody(req, defaultSize);
+  for (const [key, value] of Object.entries(body)) {
+    formData.append(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+  }
 }
 
 export async function generateImage(req: ImageGenerateRequest): Promise<TaskResponse> {
@@ -113,16 +140,7 @@ export async function generateImage(req: ImageGenerateRequest): Promise<TaskResp
 // ── Route 2: Standard image generation (Imagen, GPT, Flux, etc.) ──
 async function generateImageStandard(req: ImageGenerateRequest, refImages: string[]): Promise<TaskResponse> {
   // Build standard request body (NO 'image' param — many proxies reject it)
-  const body: Record<string, unknown> = {
-    model: req.model,
-    prompt: req.prompt,
-    n: req.n ?? 1,
-    size: req.size ?? "1024x1024",
-  };
-  if (req.quality) body.quality = req.quality;
-  if (req.style) body.style = req.style;
-  if (req.output_format) body.output_format = req.output_format;
-  if (req.moderation) body.moderation = req.moderation;
+  const body = buildImageGenerationBody(req);
 
   // ── When reference images exist, try /v1/images/edits FIRST (FormData) ──
   if (refImages.length > 0) {
@@ -159,19 +177,11 @@ async function generateImageStandard(req: ImageGenerateRequest, refImages: strin
 
     // ── Fallback: /api/v1/image/generate ──
     try {
-      const fallbackBody: Record<string, unknown> = {
-        model: req.model,
-        prompt: req.prompt,
-        n: req.n ?? 1,
-        size: req.size ?? "1024x1024",
-      };
+      const fallbackBody = buildImageGenerationBody(req);
       if (req.referenceImage) fallbackBody.referenceImage = req.referenceImage;
       if (req.referenceImages && req.referenceImages.length > 0) {
         fallbackBody.images = req.referenceImages;
       }
-      if (req.quality) fallbackBody.quality = req.quality;
-      if (req.style) fallbackBody.style = req.style;
-
       return await apiRequest<TaskResponse>({
         method: "POST",
         path: "/api/v1/image/generate",
@@ -220,12 +230,7 @@ async function generateImageGemini(req: ImageGenerateRequest, refImages: string[
   // ── Attempt 2: /v1/images/generations on geminiBaseUrl (if configured) ──
   if (geminiBaseUrl) {
     try {
-      const body: Record<string, unknown> = {
-        model: req.model,
-        prompt: req.prompt,
-        n: req.n ?? 1,
-        size: req.size ?? "1024x1024",
-      };
+      const body = buildImageGenerationBody(req);
 
       console.log(`[Gemini] Attempt generations: /v1/images/generations (geminiBaseUrl, no ref images, size=${req.size})`);
       const result = await apiRequest<OpenAIImageResponse | TaskResponse>({
@@ -457,14 +462,7 @@ async function generateImageViaEdits(
   if (!effectiveUrl) throw new Error("API 地址未配置");
 
   const formData = new FormData();
-  formData.append("model", req.model);
-  formData.append("prompt", req.prompt);
-  formData.append("n", String(req.n ?? 1));
-  formData.append("size", req.size ?? "1024x1024");
-  if (req.quality) formData.append("quality", req.quality);
-  if (req.style) formData.append("style", req.style);
-  if (req.output_format) formData.append("output_format", req.output_format);
-  if (req.moderation) formData.append("moderation", req.moderation);
+  appendImageGenerationFormFields(formData, req);
 
   // Attach ALL reference images
   for (let i = 0; i < refImages.length; i++) {

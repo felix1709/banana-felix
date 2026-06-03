@@ -7,6 +7,7 @@ import {
   movePanoramaView,
   normalizeYaw,
   rotatePanoramaViewFromDrag,
+  shouldUseOriginalPanoramaImage,
 } from "./panoramaViewer.js";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -36,6 +37,10 @@ assert(moved.yaw === 90, "movement does not rotate yaw");
 const dragged = rotatePanoramaViewFromDrag(start, { x: 100, y: 100, yaw: 90, pitch: 0 }, 200, 150);
 assert(Math.abs(dragged.yaw - 72) < 0.001, "dragging right rotates the panorama yaw from the drag start");
 assert(Math.abs(dragged.pitch - 7) < 0.001, "dragging down rotates the panorama pitch from the drag start");
+
+assert(shouldUseOriginalPanoramaImage(4096, 2048, "equirectangular"), "uses 4K equirectangular original without recompressing");
+assert(shouldUseOriginalPanoramaImage(6144, 1024, "cubemap"), "uses 1024px cubemap strip original without recompressing");
+assert(!shouldUseOriginalPanoramaImage(12000, 6000, "equirectangular"), "downsamples unsafe ultra-large panoramas");
 
 const stripLayout = detectCubemapLayout(6144, 1024);
 assert(stripLayout?.type === "horizontal-strip", "detects six-face horizontal cubemap strips");

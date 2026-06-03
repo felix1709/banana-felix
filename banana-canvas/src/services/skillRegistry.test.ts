@@ -1,5 +1,11 @@
 import { parseOptionsFromText } from "./optionsParser.js";
-import { isStoryboardIntent, parseStoryboardFromText, shouldUseStoryboardSkill } from "./skillRegistry.js";
+import {
+  extractPromptOptimizeText,
+  isPromptOptimizeIntent,
+  isStoryboardIntent,
+  parseStoryboardFromText,
+  shouldUseStoryboardSkill,
+} from "./skillRegistry.js";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -42,6 +48,11 @@ assert(shouldUseStoryboardSkill("idle", "帮我画分镜"), "activates storyboar
 assert(shouldUseStoryboardSkill("collecting", "确认，继续"), "keeps storyboard skill active while collecting");
 assert(shouldUseStoryboardSkill("choosing", "整版输出"), "keeps storyboard skill active while choosing output mode");
 assert(!shouldUseStoryboardSkill("idle", "优化提示词"), "does not activate storyboard skill for unrelated idle chat");
+assert(isPromptOptimizeIntent("优化提示词：一只猫坐在窗边"), "detects direct prompt optimization with inline content");
+assert(isPromptOptimizeIntent("please prompt optimize a cinematic city shot"), "detects English prompt optimize intent");
+assert(extractPromptOptimizeText("优化提示词：一只猫坐在窗边") === "一只猫坐在窗边", "extracts prompt text after optimize intent");
+assert(extractPromptOptimizeText("一只猫坐在窗边，优化提示词") === "一只猫坐在窗边", "extracts prompt text before trailing optimize intent");
+assert(extractPromptOptimizeText("优化提示词") === "", "returns empty text for bare optimize intent");
 
 const fencedStoryboard = parseStoryboardFromText(`[STORYBOARD_COMPLETE]
 \`\`\`json

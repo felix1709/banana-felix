@@ -9,8 +9,8 @@ function assert(condition: unknown, message: string): void {
 }
 
 assert(
-  getAutoSaveDestination({ projectPath: null, isTauri: true }).kind === "temporary",
-  "uses temporary autosave before a formal project path exists",
+  getAutoSaveDestination({ projectPath: null, isTauri: true }).kind === "disabled",
+  "disables autosave before a formal project path exists",
 );
 
 const projectDestination = getAutoSaveDestination({ projectPath: "C:/work/demo.gaga", isTauri: true });
@@ -20,20 +20,20 @@ assert(
 );
 
 assert(
-  getAutoSaveDestination({ projectPath: "C:/work/demo.gaga", isTauri: false }).kind === "temporary",
+  getAutoSaveDestination({ projectPath: "C:/work/demo.gaga", isTauri: false }).kind === "disabled",
   "browser fallback cannot silently write back to a chosen file path",
 );
 
 assert(
-  getAutoSaveStatusText({ mode: "temporary", projectName: "Demo", status: "saved" }) === "临时文件 · 已保存",
-  "temporary status label is explicit",
+  getAutoSaveStatusText({ mode: "temporary", projectName: "Demo", status: "saved" }) === "\u4e34\u65f6\u6587\u4ef6",
+  "temporary status label does not imply saved persistence",
 );
 
 const statusCases: Array<[AutoSaveStatus, string]> = [
-  ["idle", "Demo · 待保存"],
-  ["saving", "Demo · 自动保存中"],
-  ["saved", "Demo · 已保存"],
-  ["error", "Demo · 保存异常"],
+  ["idle", "Demo \u00b7 \u5f85\u4fdd\u5b58"],
+  ["saving", "Demo \u00b7 \u81ea\u52a8\u4fdd\u5b58\u4e2d"],
+  ["saved", "Demo \u00b7 \u5df2\u4fdd\u5b58"],
+  ["error", "Demo \u00b7 \u4fdd\u5b58\u5f02\u5e38"],
 ];
 
 for (const [status, expected] of statusCases) {

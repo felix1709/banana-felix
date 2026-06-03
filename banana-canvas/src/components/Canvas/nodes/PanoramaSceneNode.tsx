@@ -15,7 +15,9 @@ import type { PanoramaSceneSettings } from "../../../types/settings";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 import { toXyEdge, toXyNode } from "../../../utils/nodeConvert";
 import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
+import { saveImageSourceToLocal } from "../../../utils/saveImageToLocal";
 import { getImageModelOptions } from "./imageModelOptions";
+import { buildPanoramaImageRequest } from "./panoramaGeneration";
 import { buildPanoramaPrompt } from "./panoramaPrompt";
 import {
   clampFov,
@@ -26,6 +28,7 @@ import {
   renderCubemapPanorama,
   renderEquirectangularPanorama,
   rotatePanoramaViewFromDrag,
+  shouldUseOriginalPanoramaImage,
   type CubemapLayout,
   type PanoramaDragStart,
   type PanoramaViewState,
@@ -48,11 +51,10 @@ const LENS_FOV: Record<PanoramaSceneSettings["lens"], number> = {
   "85mm": 28,
 };
 
-const MAX_UPLOAD_PANORAMA_BYTES = 18 * 1024 * 1024;
-const MAX_EQUIRECT_PREVIEW_WIDTH = 4096;
-const MAX_EQUIRECT_PREVIEW_HEIGHT = 2048;
-const MAX_CUBEMAP_PREVIEW_WIDTH = 1536;
-const MAX_CUBEMAP_PREVIEW_HEIGHT = 1024;
+const MAX_EQUIRECT_PREVIEW_WIDTH = 8192;
+const MAX_EQUIRECT_PREVIEW_HEIGHT = 4096;
+const MAX_CUBEMAP_PREVIEW_WIDTH = 6144;
+const MAX_CUBEMAP_PREVIEW_HEIGHT = 4096;
 const MAX_CANVAS_PIXELS = 900_000;
 const MAX_CUBEMAP_CANVAS_PIXELS = 420_000;
 const MAX_SOURCE_PIXELS = 96_000_000;
@@ -110,6 +112,10 @@ async function createSafePreviewImage(
   image: HTMLImageElement,
   format: PanoramaSceneSettings["format"],
 ): Promise<{ image: HTMLImageElement; width: number; height: number }> {
+  const { width, height } = getImageNaturalSize(image);
+  if (shouldUseOriginalPanoramaImage(width, height, format)) {
+    return { image, width, height };
+  }
   const { canvas } = drawDownsampledCanvas(image, format);
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   const safeImage = await loadImageElement(dataUrl);
@@ -127,7 +133,9 @@ async function prepareLocalPanoramaDataUrl(
     const limits = format === "cubemap"
       ? { width: MAX_CUBEMAP_PREVIEW_WIDTH, height: MAX_CUBEMAP_PREVIEW_HEIGHT }
       : { width: MAX_EQUIRECT_PREVIEW_WIDTH, height: MAX_EQUIRECT_PREVIEW_HEIGHT };
-    const mustDownsample = file.size > MAX_UPLOAD_PANORAMA_BYTES || width > limits.width || height > limits.height;
+    const mustDownsample = !shouldUseOriginalPanoramaImage(width, height, format)
+      || width > limits.width
+      || height > limits.height;
     if (!mustDownsample) {
       return { dataUrl: await readFileAsDataUrl(file), downsampled: false };
     }
@@ -168,6 +176,7 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     node?.content || settings.panoramaImage ? "loading" : "empty",
   );
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [savingOriginal, setSavingOriginal] = useState(false);
 
   useGenerationPoll(id);
 
@@ -429,15 +438,12 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
         hasSourceImage: !!settings.sourceImage,
         format: settings.format || "equirectangular",
       });
-      const isCubemap = settings.format === "cubemap";
-      const result = await generateImage({
+      const result = await generateImage(buildPanoramaImageRequest({
         model: settings.model || "gpt-image-2",
         prompt,
-        n: 1,
-        size: isCubemap ? "3072x512" : "2048x1024",
-        ratio: isCubemap ? "6:1" : "2:1",
-        referenceImage: settings.sourceImage || undefined,
-      });
+        format: settings.format || "equirectangular",
+        sourceImage: settings.sourceImage || undefined,
+      }));
 
       if (result.imageUrl) {
         updateSettings({ panoramaImage: result.imageUrl });
@@ -455,6 +461,21 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
       updateJob(jobId, { status: "failed", progress: 0, error: error instanceof Error ? error.message : "全景图生成失败" });
     }
   }, [addJob, id, settings.format, settings.model, settings.prompt, settings.sourceImage, setXyNodes, updateJob, updateNode, updateSettings]);
+
+  const handleSaveOriginal = useCallback(async () => {
+    if (!panoramaImage || savingOriginal) return;
+    setSavingOriginal(true);
+    try {
+      const saved = await saveImageSourceToLocal(panoramaImage, node?.nodeName || "panorama");
+      if (saved) {
+        useUIStore.getState().addToast("success", "\u539f\u56fe\u5df2\u4fdd\u5b58");
+      }
+    } catch (error) {
+      useUIStore.getState().addToast("error", error instanceof Error ? error.message : "\u539f\u56fe\u4fdd\u5b58\u5931\u8d25");
+    } finally {
+      setSavingOriginal(false);
+    }
+  }, [node?.nodeName, panoramaImage, savingOriginal]);
 
   const handleCapture = useCallback(() => {
     const canvas = canvasRef.current;
@@ -503,7 +524,7 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     useGraphStore.getState().addEdge(edge);
     setXyNodes((nds) => [...nds, toXyNode(imageNode)]);
     setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
-    useUIStore.getState().addToast("success", "已将当前视角保存为场景图片");
+    useUIStore.getState().addToast("success", "\u5df2\u4fdd\u5b58\u56fe\u7247\u8282\u70b9");
   }, [id, setXyEdges, setXyNodes]);
 
   const resetView = useCallback(() => {
@@ -676,6 +697,9 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
             <button type="button" className="nodrag rounded border px-3 py-1 text-xs" style={fullscreenControlStyle} onClick={handleCapture} disabled={!panoramaImage}>
               拍照
             </button>
+            <button type="button" className="nodrag rounded border px-3 py-1 text-xs" style={fullscreenControlStyle} onClick={handleSaveOriginal} disabled={!panoramaImage || savingOriginal}>
+              {savingOriginal ? "\u4fdd\u5b58\u4e2d" : "\u4fdd\u5b58\u539f\u56fe"}
+            </button>
             <button
               type="button"
               className="nodrag rounded border px-3 py-1 text-xs"
@@ -709,7 +733,7 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
           </div>
         ) : viewer}
 
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           <button type="button" className="nodrag text-[10px] rounded border px-1 py-1" style={inputStyle} onClick={() => fileInputRef.current?.click()}>
             上传场景
           </button>
@@ -724,6 +748,9 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
           </button>
           <button type="button" className="nodrag text-[10px] rounded border px-1 py-1" style={inputStyle} onClick={handleCapture} disabled={!panoramaImage}>
             拍照
+          </button>
+          <button type="button" className="nodrag text-[10px] rounded border px-1 py-1" style={inputStyle} onClick={handleSaveOriginal} disabled={!panoramaImage || savingOriginal}>
+            {savingOriginal ? "\u4fdd\u5b58\u4e2d" : "\u4fdd\u5b58\u539f\u56fe"}
           </button>
         </div>
 

@@ -6,14 +6,9 @@ import { useUIStore } from "../stores/uiStore";
 import { getAutoSaveDestination } from "../services/projectAutoSave";
 import {
   clearTemporaryProject,
-  deserializeProject,
-  getTemporaryProject,
-  saveTemporaryProject,
   serializeProject,
   writeProjectFile,
 } from "../services/projectService";
-import { toXyEdge, toXyNode } from "../utils/nodeConvert";
-import { dedupeCanvasEdges } from "../utils/edgeDedup";
 
 const AUTO_SAVE_DELAY_MS = 3 * 60 * 1000;
 
@@ -21,57 +16,35 @@ function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
-export function saveTemporarySnapshotNow(projectName?: string): number {
-  const content = serializeProject(projectName || useProjectStore.getState().projectName);
-  const savedAt = saveTemporaryProject(content);
-  useProjectStore.getState().markAutoSaved(savedAt, "temporary");
-  return savedAt;
-}
-
 export function useProjectAutoSave(
-  setNodes: (payload: Node[] | ((nodes: Node[]) => Node[])) => void,
-  setEdges: (payload: Edge[] | ((edges: Edge[]) => Edge[])) => void,
-  setViewport?: (viewport: { x: number; y: number; zoom: number }) => void,
+  _setNodes: (payload: Node[] | ((nodes: Node[]) => Node[])) => void,
+  _setEdges: (payload: Edge[] | ((edges: Edge[]) => Edge[])) => void,
+  _setViewport?: (viewport: { x: number; y: number; zoom: number }) => void,
 ): void {
   const addToast = useUIStore((s) => s.addToast);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const changeVersionRef = useRef(0);
-  const restoringRef = useRef(false);
   const lastErrorRef = useRef("");
 
   useEffect(() => {
-    const tempProject = getTemporaryProject();
-    const ps = useProjectStore.getState();
-    if (!tempProject || ps.projectPath) return;
-
-    try {
-      restoringRef.current = true;
-      const data = deserializeProject(tempProject);
-      useGraphStore.getState().loadGraph(data.nodes, data.edges, data.groups, {
-        view: data.view,
-        canvasTextBoxes: data.canvasTextBoxes ?? [],
-        canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
-      });
-      setNodes(data.nodes.map(toXyNode));
-      setEdges(dedupeCanvasEdges(data.edges).map(toXyEdge));
-      setViewport?.(data.view);
-      ps.setProjectPath(null);
-      ps.setProjectName(data.projectName || "未命名项目");
-      ps.markAutoSaved(Date.now(), "temporary");
-      if (data.nodes.length > 0 || data.edges.length > 0) {
-        addToast("success", "已恢复临时文件");
-      }
-    } catch {
+    if (!useProjectStore.getState().projectPath) {
       clearTemporaryProject();
-    } finally {
-      restoringRef.current = false;
     }
-  }, [addToast, setEdges, setNodes, setViewport]);
+  }, []);
 
   useEffect(() => {
+    const hasWritableProject = () => {
+      const ps = useProjectStore.getState();
+      return getAutoSaveDestination({
+        projectPath: ps.projectPath,
+        isTauri: isTauri(),
+      }).kind === "project-file";
+    };
+
     const runAutoSave = async () => {
       const startedVersion = changeVersionRef.current;
       const ps = useProjectStore.getState();
+      if (!hasWritableProject()) return;
       if (!ps.modified && ps.autoSaveStatus === "saved") return;
 
       ps.markAutoSaving();
@@ -82,16 +55,12 @@ export function useProjectAutoSave(
           isTauri: isTauri(),
         });
 
-        let savedAt = Date.now();
-        if (destination.kind === "project-file") {
-          await writeProjectFile(destination.path, content);
-          clearTemporaryProject();
-        } else {
-          savedAt = saveTemporaryProject(content);
-        }
+        if (destination.kind !== "project-file") return;
 
-        const mode = destination.kind === "project-file" ? "project" : "temporary";
-        ps.markAutoSaved(savedAt, mode);
+        await writeProjectFile(destination.path, content);
+        clearTemporaryProject();
+
+        ps.markAutoSaved(Date.now(), "project");
         lastErrorRef.current = "";
 
         if (changeVersionRef.current !== startedVersion) {
@@ -99,16 +68,20 @@ export function useProjectAutoSave(
           scheduleAutoSave();
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "未知错误";
+        const message = err instanceof Error ? err.message : "\u672a\u77e5\u9519\u8bef";
         ps.markAutoSaveFailed(message);
         if (lastErrorRef.current !== message) {
-          addToast("error", `自动保存失败: ${message}`);
+          addToast("error", `\u81ea\u52a8\u4fdd\u5b58\u5931\u8d25: ${message}`);
           lastErrorRef.current = message;
         }
       }
     };
 
     const scheduleAutoSave = () => {
+      if (!hasWritableProject()) {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        return;
+      }
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         void runAutoSave();
@@ -116,7 +89,6 @@ export function useProjectAutoSave(
     };
 
     const recordChange = () => {
-      if (restoringRef.current) return;
       changeVersionRef.current += 1;
       useProjectStore.getState().markModified();
       scheduleAutoSave();

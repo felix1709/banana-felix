@@ -4,7 +4,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGraphStore } from "../../stores/graphStore";
 import { useReactFlow } from "@xyflow/react";
 import { streamChatMessage, buildCanvasContext, type ChatMessageParam, type ChatMessageContent } from "../../services/chatService";
-import { getJiaojiaoSystemPrompt, isStoryboardIntent, shouldUseStoryboardSkill, parseStoryboardFromText, executePromptOptimize, parsePromptOptimizeOutput, parseOptionsFromText, splitTransitionShots, type SplitShot } from "../../services/skillRegistry";
+import { getJiaojiaoSystemPrompt, isStoryboardIntent, shouldUseStoryboardSkill, parseStoryboardFromText, executePromptOptimize, parsePromptOptimizeOutput, parseOptionsFromText, splitTransitionShots, isPromptOptimizeIntent, extractPromptOptimizeText, type SplitShot } from "../../services/skillRegistry";
 import { ChatBubble } from "./ChatBubble";
 import { QuickReplyOptions } from "./QuickReplyOptions";
 import { StoryboardModeSelector } from "./StoryboardModeSelector";
@@ -30,11 +30,13 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const skillPhase = useAgentStore((s) => s.skillPhase);
   const storyboardData = useAgentStore((s) => s.storyboardData);
   const streamingText = useAgentStore((s) => s.streamingText);
+  const panelScrollTop = useAgentStore((s) => s.panelScrollTop);
 
   const addMessage = useAgentStore((s) => s.addMessage);
   const setStatus = useAgentStore((s) => s.setStatus);
   const setSelectedModel = useAgentStore((s) => s.setSelectedModel);
   const closePanel = useAgentStore((s) => s.closePanel);
+  const setPanelScrollTop = useAgentStore((s) => s.setPanelScrollTop);
   const setSkillPhase = useAgentStore((s) => s.setSkillPhase);
   const setStoryboardData = useAgentStore((s) => s.setStoryboardData);
   const resetSkill = useAgentStore((s) => s.resetSkill);
@@ -52,6 +54,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   const chatModels = (() => {
     const dynamic = remoteModels.filter((m) => m.type === "chat");
@@ -79,14 +82,27 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     return imageMentionOptions.filter((node) => node.nodeName.toLowerCase().includes(q));
   }, [atQuery, imageMentionOptions]);
 
-  // Auto-scroll
+  // Restore the last reading position when the panel reopens.
   useEffect(() => {
+    if (!panelOpen) return;
     const el = scrollRef.current;
     if (!el) return;
     requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
+      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      el.scrollTop = Math.min(panelScrollTop, maxTop);
+      shouldStickToBottomRef.current = maxTop - el.scrollTop < 48;
     });
-  }, [messages, streamingText]);
+  }, [panelOpen, panelScrollTop]);
+
+  // Follow new replies only when the user is already near the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !shouldStickToBottomRef.current) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+      setPanelScrollTop(el.scrollTop);
+    });
+  }, [messages.length, streamingText, setPanelScrollTop]);
 
   // Keep the reply box ready when the panel opens.
   useEffect(() => {
@@ -134,6 +150,57 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
   const sendText = useCallback(async (text: string) => {
     if (!text || status === "thinking" || status === "generating") return;
+    shouldStickToBottomRef.current = true;
+
+    if (isPromptOptimizeIntent(text)) {
+      const promptText = extractPromptOptimizeText(text);
+      addMessage({ role: "user", content: text });
+      setInput("");
+
+      if (!promptText) {
+        addMessage({
+          role: "assistant",
+          content: "\u8bf7\u628a\u8981\u4f18\u5316\u7684\u63d0\u793a\u8bcd\u76f4\u63a5\u53d1\u7ed9\u6211\uff0c\u6211\u4f1a\u57fa\u4e8e\u5f53\u524d\u6587\u672c\u8fdb\u884c\u89e3\u6790\u548c\u6539\u5199\u3002\n\n[OPTIONS]\n- \u7c98\u8d34\u63d0\u793a\u8bcd\n- \u53d6\u6d88\n- \u270f\ufe0f \u81ea\u5b9a\u4e49\n[/OPTIONS]",
+        });
+        setStatus("idle");
+        return;
+      }
+
+      setStatus("generating");
+      try {
+        const result = await executePromptOptimize({ userRequirement: promptText, model: currentModel });
+        if (result.success) {
+          const promptResult = parsePromptOptimizeOutput(result.data);
+          if (promptResult) {
+            const deploy: DeployPreview = {
+              nodes: [{
+                id: "preview-prompt-gen",
+                type: "gen-image",
+                nodeName: "\u4f18\u5316\u63d0\u793a\u8bcd\u751f\u6210",
+                prompt: promptResult.optimized,
+                content: "",
+                settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
+                position: { x: 100, y: 100 },
+              }],
+              edges: [],
+              confirmed: false,
+            };
+            addMessage({ role: "assistant", content: `\u63d0\u793a\u8bcd\u4f18\u5316\u5b8c\u6210\uff01\n\u539f\u6587\uff1a${promptResult.original}\n\u4f18\u5316\u540e\uff1a${promptResult.optimized}`, skillCall: result });
+            deployToCanvas(deploy);
+          } else {
+            addMessage({ role: "assistant", content: "\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25\uff1a\u8fd4\u56de\u5185\u5bb9\u683c\u5f0f\u5f02\u5e38" });
+          }
+        } else {
+          addMessage({ role: "assistant", content: `\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25\uff1a${result.rawText}` });
+        }
+      } catch (err) {
+        addMessage({ role: "assistant", content: `\u6267\u884c\u51fa\u9519\uff1a${err instanceof Error ? err.message : String(err)}` });
+      } finally {
+        setStatus("idle");
+      }
+      return;
+    }
+
     const referencedImages = buildReferencedImageParts(text, useGraphStore.getState().nodes);
     const storyboardActiveForRequest = shouldUseStoryboardSkill(skillPhase, text);
 
@@ -189,43 +256,6 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
               role: "assistant",
               content: `已在画布生成 ${imageNodeSpecs.length} 个图片生成节点：${imageNodeSpecs.map((spec) => spec.nodeName).join("、")}。`,
             });
-          }
-
-          // Detect prompt optimize intent
-          const lower = fullText.toLowerCase();
-          if (lower.includes("优化提示词") || lower.includes("优化prompt")) {
-            setStatus("generating");
-            setTimeout(async () => {
-              try {
-                const result = await executePromptOptimize({ userRequirement: text, model: currentModel });
-                if (result.success) {
-                  const promptResult = parsePromptOptimizeOutput(result.data);
-                  if (promptResult) {
-                    const deploy: DeployPreview = {
-                      nodes: [{
-                        id: "preview-prompt-gen",
-                        type: "gen-image",
-                        nodeName: "优化提示词生成",
-                        prompt: promptResult.optimized,
-                        content: "",
-                        settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
-                        position: { x: 100, y: 100 },
-                      }],
-                      edges: [],
-                      confirmed: false,
-                    };
-                    addMessage({ role: "assistant", content: `提示词优化完成！\n原文：${promptResult.original}\n优化后：${promptResult.optimized}`, skillCall: result });
-                    deployToCanvas(deploy);
-                  }
-                } else {
-                  addMessage({ role: "assistant", content: `提示词优化失败：${result.rawText}` });
-                }
-              } catch (err) {
-                addMessage({ role: "assistant", content: `执行出错：${err instanceof Error ? err.message : String(err)}` });
-              }
-              setStatus("idle");
-            }, 0);
-            return;
           }
 
           setStatus("idle");
@@ -287,6 +317,19 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     if (status === "thinking" || status === "generating") return;
     inputRef.current?.focus();
   }, [status]);
+
+  const handleConversationScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setPanelScrollTop(el.scrollTop);
+    shouldStickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }, [setPanelScrollTop]);
+
+  const handleClosePanel = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) setPanelScrollTop(el.scrollTop);
+    closePanel();
+  }, [closePanel, setPanelScrollTop]);
 
   // ── Deploy nodes to canvas ──
   const deployToCanvas = useCallback((deploy: DeployPreview) => {
@@ -574,7 +617,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         {phaseLabel[skillPhase] && (
           <span style={{ fontSize: 9, color: "#f97316", whiteSpace: "nowrap" }}>{phaseLabel[skillPhase]}</span>
         )}
-        <button type="button" onClick={closePanel} style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: 14, lineHeight: 1, marginLeft: 2 }} title="收起">✕</button>
+        <button type="button" onClick={handleClosePanel} style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: 14, lineHeight: 1, marginLeft: 2 }} title="收起">✕</button>
       </div>
 
       {/* Messages area (relative for SessionHistoryPanel overlay) */}
@@ -583,6 +626,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         <div
           ref={scrollRef}
           className="custom-scrollbar"
+          onScroll={handleConversationScroll}
           style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "8px 12px", background: "#09090b" }}
         >
         {messages.length === 0 && (

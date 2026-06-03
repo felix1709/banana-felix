@@ -2,7 +2,7 @@ export type AutoSaveMode = "temporary" | "project";
 export type AutoSaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type AutoSaveDestination =
-  | { kind: "temporary" }
+  | { kind: "disabled" }
   | { kind: "project-file"; path: string };
 
 export function getAutoSaveDestination(params: {
@@ -12,7 +12,7 @@ export function getAutoSaveDestination(params: {
   if (params.isTauri && params.projectPath) {
     return { kind: "project-file", path: params.projectPath };
   }
-  return { kind: "temporary" };
+  return { kind: "disabled" };
 }
 
 export function getAutoSaveStatusText(params: {
@@ -20,15 +20,16 @@ export function getAutoSaveStatusText(params: {
   projectName: string;
   status: AutoSaveStatus;
 }): string {
+  if (params.mode === "temporary") {
+    return "\u4e34\u65f6\u6587\u4ef6";
+  }
+
   const statusText: Record<AutoSaveStatus, string> = {
-    idle: "待保存",
-    saving: "自动保存中",
-    saved: "已保存",
-    error: "保存异常",
+    idle: "\u5f85\u4fdd\u5b58",
+    saving: "\u81ea\u52a8\u4fdd\u5b58\u4e2d",
+    saved: "\u5df2\u4fdd\u5b58",
+    error: "\u4fdd\u5b58\u5f02\u5e38",
   };
 
-  if (params.mode === "temporary") {
-    return `临时文件 · ${statusText[params.status]}`;
-  }
-  return `${params.projectName || "未命名项目"} · ${statusText[params.status]}`;
+  return `${params.projectName || "\u672a\u547d\u540d\u9879\u76ee"} \u00b7 ${statusText[params.status]}`;
 }
