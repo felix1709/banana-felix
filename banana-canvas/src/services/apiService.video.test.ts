@@ -8,7 +8,7 @@ const request: VideoGenerateRequest = {
   model: "seedance-2.0",
   prompt: "女孩奔跑，@参考图",
   negativePrompt: "低清，抖动",
-  duration: 8,
+  duration: 15,
   fps: 24,
   resolution: "720p",
   seed: 12345,
@@ -27,9 +27,16 @@ const request: VideoGenerateRequest = {
 const body = buildVideoGenerationBody(request);
 
 assert(body.model === "seedance-2.0", "keeps selected video model");
-assert(body.prompt === request.prompt, "keeps full prompt");
-assert(body.duration === 8, "passes selected duration");
-assert(body.duration_seconds === 8, "adds mainstream duration alias");
+assert(typeof body.prompt === "string" && body.prompt.includes(request.prompt), "keeps full prompt");
+assert(typeof body.prompt === "string" && body.prompt.includes("duration=15s"), "embeds selected duration in prompt instructions");
+assert(body.duration === 15, "passes selected duration");
+assert(body.duration_seconds === 15, "adds mainstream duration alias");
+assert(body.duration_s === 15, "adds duration_s alias");
+assert(body.duration_sec === 15, "adds duration_sec alias");
+assert(body.durationSeconds === 15, "adds camelCase duration alias");
+assert(body.video_duration === 15, "adds video_duration alias");
+assert(body.videoDuration === 15, "adds videoDuration alias");
+assert(body.seconds === "15", "adds string seconds alias for Go gateway compatibility");
 assert(body.fps === 24, "passes fps");
 assert(body.resolution === "720p", "passes selected resolution");
 assert(body.seed === 12345, "passes seed");

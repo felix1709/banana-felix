@@ -157,6 +157,16 @@ export interface GenMusicSettings {
   prompt: string;
 }
 
+export interface PanoramaSceneSettings {
+  model: string;
+  prompt: string;
+  sourceImage: string;
+  panoramaImage: string;
+  format: "equirectangular" | "cubemap";
+  fov: number;
+  lens: "24mm" | "35mm" | "50mm" | "85mm";
+}
+
 export interface CustomAgentSettings {
   model: string;
   systemPrompt: string;
@@ -278,6 +288,7 @@ export type AnyNodeSettings =
   | CanvasNodeSettings
   | DoodleCanvasSettings
   | GenMusicSettings
+  | PanoramaSceneSettings
   | CustomAgentSettings
   | InpaintCropSettings
   | InpaintStitchSettings

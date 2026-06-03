@@ -34,6 +34,7 @@ import { DoodleOverlay } from "./components/Canvas/DoodleOverlay";
 import type { CanvasNode, CanvasEdge as CanvasEdgeType, NodeType } from "./types/node";
 import { NODE_DEFAULT_SIZES, NODE_TYPE_LABELS, getDefaultSettings } from "./types/node";
 import { v4 as uuid } from "uuid";
+import { appendUniqueXyEdge, dedupeCanvasEdges } from "./utils/edgeDedup";
 
 const edgeTypes = { canvas: CanvasEdge };
 
@@ -172,7 +173,7 @@ function CanvasApp() {
         inputType: "default",
       };
       useGraphStore.getState().addEdge(edge);
-      setEdges((eds) => [...eds, toXyEdge(edge)]);
+      setEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
     },
     [setEdges],
   );
@@ -660,7 +661,7 @@ function CanvasApp() {
           const parsedGroups = JSON.parse(entry.groups);
           useGraphStore.getState().loadGraph(parsedNodes, parsedEdges, parsedGroups);
           setNodes(parsedNodes.map(toXyNode));
-          setEdges(parsedEdges.map(toXyEdge));
+          setEdges(dedupeCanvasEdges(parsedEdges).map(toXyEdge));
         }
         return;
       }
@@ -677,7 +678,7 @@ function CanvasApp() {
           const parsedGroups = JSON.parse(entry.groups);
           useGraphStore.getState().loadGraph(parsedNodes, parsedEdges, parsedGroups);
           setNodes(parsedNodes.map(toXyNode));
-          setEdges(parsedEdges.map(toXyEdge));
+          setEdges(dedupeCanvasEdges(parsedEdges).map(toXyEdge));
         }
         return;
       }

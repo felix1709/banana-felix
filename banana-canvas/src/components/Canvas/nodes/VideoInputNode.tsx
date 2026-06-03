@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { BaseNode } from "../BaseNode";
 import { useNodeSettings } from "../../../hooks/useNodeSettings";
@@ -7,11 +7,13 @@ import { useUIStore } from "../../../stores/uiStore";
 import { useJobStore } from "../../../stores/jobStore";
 import { useGenerationPoll } from "../../../hooks/useGenerationPoll";
 import type { VideoInputSettings } from "../../../types/settings";
+import { getVideoRetrySourceNodeId, VIDEO_RETRY_EVENT, type VideoRetryEventDetail } from "./videoRetry";
 
 export const VideoInputNode = memo(function VideoInputNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark";
   const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
   const node = useGraphStore((s) => s.nodes.find((n) => n.id === id));
   const { settings } = useNodeSettings<VideoInputSettings>(id);
   const latestJob = useJobStore((s) => s.getLatestJobByNodeId(id));
@@ -23,6 +25,13 @@ export const VideoInputNode = memo(function VideoInputNode({ id, selected }: Nod
   const hasVideo = !!content;
   const isGenerating = !hasVideo && (latestJob?.status === "pending" || latestJob?.status === "running");
   const generationFailed = !hasVideo && latestJob?.status === "failed";
+  const errorMessage = generationFailed
+    ? latestJob?.error || "生成失败，请重新生成"
+    : "";
+  const retrySourceNodeId = useMemo(
+    () => getVideoRetrySourceNodeId(nodes, edges, id),
+    [edges, id, nodes],
+  );
 
   const handleSaveLocally = useCallback(async () => {
     if (!content) return;
@@ -65,9 +74,27 @@ export const VideoInputNode = memo(function VideoInputNode({ id, selected }: Nod
     }
   }, [content, settings.fileName]);
 
+  const handleRetry = useCallback(() => {
+    if (!retrySourceNodeId) return;
+    const detail: VideoRetryEventDetail = {
+      sourceNodeId: retrySourceNodeId,
+      outputNodeId: id,
+    };
+    window.dispatchEvent(new CustomEvent(VIDEO_RETRY_EVENT, { detail }));
+  }, [id, retrySourceNodeId]);
+
+  const handleCopyError = useCallback(async () => {
+    if (!errorMessage) return;
+    try {
+      await navigator.clipboard.writeText(errorMessage);
+      useUIStore.getState().addToast("success", "错误信息已复制");
+    } catch {
+      useUIStore.getState().addToast("error", "复制失败，请手动选中文本复制");
+    }
+  }, [errorMessage]);
+
   return (
     <BaseNode id={id} type="video-input" selected={selected}>
-      {/* Reference label */}
       <div className="flex items-center gap-1 mb-1.5">
         <span
           className="text-[11px] font-bold px-2 py-0.5 rounded"
@@ -76,14 +103,13 @@ export const VideoInputNode = memo(function VideoInputNode({ id, selected }: Nod
             color: isDark ? "#fb923c" : "#9a3412",
           }}
         >
-          ▶ 视频
+          视频
         </span>
         <span className="text-[9px] ml-auto" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
-          @{nodes.find((n) => n.id === id)?.nodeName || "视频1"} 引用
+          @{node?.nodeName || "视频1"} 引用
         </span>
       </div>
 
-      {/* Video preview / generation status */}
       <div
         className="w-full rounded-lg overflow-hidden relative"
         style={{
@@ -145,14 +171,80 @@ export const VideoInputNode = memo(function VideoInputNode({ id, selected }: Nod
             <span className="text-[11px]" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
               {generationFailed ? "生成失败" : isGenerating ? "正在生成..." : "等待生成结果"}
             </span>
-            <span className="text-[9px]" style={{ color: isDark ? "#52525b" : "#d4d4d8" }}>
-              {generationFailed ? (latestJob.error || "请重新生成") : latestJob?.progress ? `${latestJob.progress}%` : "视频会自动显示在这里"}
-            </span>
+            {generationFailed ? (
+              <div className="w-full px-3 flex flex-col gap-2">
+                <textarea
+                  className="nodrag nowheel"
+                  readOnly
+                  value={errorMessage}
+                  title="错误详情，可选中复制"
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    resize: "none",
+                    userSelect: "text",
+                    cursor: "text",
+                    fontSize: 10,
+                    lineHeight: "15px",
+                    padding: "6px 7px",
+                    borderRadius: 6,
+                    outline: "none",
+                    color: isDark ? "#fecaca" : "#991b1b",
+                    background: isDark ? "rgba(127,29,29,0.2)" : "#fef2f2",
+                    border: `1px solid ${isDark ? "rgba(248,113,113,0.35)" : "#fecaca"}`,
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <div className="flex items-center justify-center gap-2">
+                  {retrySourceNodeId && (
+                    <button
+                      type="button"
+                      className="nodrag"
+                      onClick={(e) => { e.stopPropagation(); handleRetry(); }}
+                      style={{
+                        height: 22,
+                        padding: "0 8px",
+                        borderRadius: 5,
+                        border: "1px solid #f97316",
+                        background: isDark ? "rgba(249,115,22,0.16)" : "#fff7ed",
+                        color: "#f97316",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      重新生成
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="nodrag"
+                    onClick={(e) => { e.stopPropagation(); handleCopyError(); }}
+                    style={{
+                      height: 22,
+                      padding: "0 8px",
+                      borderRadius: 5,
+                      border: `1px solid ${isDark ? "#52525b" : "#d4d4d8"}`,
+                      background: isDark ? "#18181b" : "#ffffff",
+                      color: isDark ? "#e4e4e7" : "#3f3f46",
+                      fontSize: 10,
+                      cursor: "pointer",
+                    }}
+                  >
+                    复制错误
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <span className="text-[9px]" style={{ color: isDark ? "#52525b" : "#d4d4d8" }}>
+                {latestJob?.progress ? `${latestJob.progress}%` : "视频会自动显示在这里"}
+              </span>
+            )}
           </div>
         )}
       </div>
 
-      {/* File name */}
       {settings.fileName && settings.fileName !== "生成中..." && (
         <div className="text-[9px] mt-1 truncate" style={{ color: isDark ? "#71717a" : "#a1a1aa" }}>
           {settings.fileName}

@@ -12,6 +12,7 @@ import { toXyEdge, toXyNode } from "../../../utils/nodeConvert";
 import { getDefaultSettings, NODE_DEFAULT_SIZES, type CanvasEdge, type CanvasNode } from "../../../types/node";
 import type { InputImageSettings } from "../../../types/settings";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 export const InputImageNode = memo(function InputImageNode({ id, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -280,7 +281,7 @@ export const InputImageNode = memo(function InputImageNode({ id, selected }: Nod
     useGraphStore.getState().addNode(textNode);
     useGraphStore.getState().addEdge(edge);
     setXyNodes((nds) => [...nds, toXyNode(textNode)]);
-    setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+    setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
 
     setReversing(true);
     try {

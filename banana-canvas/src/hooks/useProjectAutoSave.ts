@@ -13,8 +13,9 @@ import {
   writeProjectFile,
 } from "../services/projectService";
 import { toXyEdge, toXyNode } from "../utils/nodeConvert";
+import { dedupeCanvasEdges } from "../utils/edgeDedup";
 
-const AUTO_SAVE_DELAY_MS = 1500;
+const AUTO_SAVE_DELAY_MS = 3 * 60 * 1000;
 
 function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -52,7 +53,7 @@ export function useProjectAutoSave(
         canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
       });
       setNodes(data.nodes.map(toXyNode));
-      setEdges(data.edges.map(toXyEdge));
+      setEdges(dedupeCanvasEdges(data.edges).map(toXyEdge));
       setViewport?.(data.view);
       ps.setProjectPath(null);
       ps.setProjectName(data.projectName || "未命名项目");

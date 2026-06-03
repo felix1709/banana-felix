@@ -11,6 +11,7 @@ export type NodeType =
   | "doodle-canvas"
   | "gen-image"
   | "gen-video"
+  | "panorama-scene"
   | "gen-music"
   | "motion-control"
   | "custom-agent"
@@ -122,6 +123,7 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   "doodle-canvas": "涂鸦画板",
   "gen-image": "生成图片",
   "gen-video": "生成视频",
+  "panorama-scene": "全景节点",
   "gen-music": "生成音乐",
   "motion-control": "动作迁移",
   "custom-agent": "自定义代理",
@@ -157,6 +159,7 @@ export const NODE_DEFAULT_SIZES: Record<NodeType, NodeDimensions> = {
   "doodle-canvas": { w: 700, h: 300 },
   "gen-image": { w: 320, h: 320 },
   "gen-video": { w: 320, h: 320 },
+  "panorama-scene": { w: 460, h: 420 },
   "gen-music": { w: 350, h: 700 },
   "motion-control": { w: 320, h: 580 },
   "custom-agent": { w: 620, h: 800 },
@@ -212,6 +215,8 @@ export function getDefaultSettings(type: NodeType): AnyNodeSettings {
       return { model: "gpt-image-2", ratio: "16:9", resolution: "1K", batchCount: 1, compactImageWidget: true, isCollapsed: false, refAnnotations: {}, localPrompt: "", isAutoPrompt: true };
     case "gen-video":
       return { model: "seedance-2.0", duration: 5, fps: 24, resolution: "720p", seed: -1, negativePrompt: "", ratio: "16:9", generateAudio: true, smartDuration: false, referenceMode: "multimodal", startFrameRef: "", endFrameRef: "" };
+    case "panorama-scene":
+      return { model: "gpt-image-2", prompt: "", sourceImage: "", panoramaImage: "", format: "equirectangular", fov: 60, lens: "35mm" };
     case "preview":
       return { autoPlay: true, zoom: 1 };
     case "local-save":

@@ -2,6 +2,7 @@ import { InputImageNode } from "./InputImageNode";
 import { TextNode } from "./TextNode";
 import { GenImageNode } from "./GenImageNode";
 import { GenVideoNode } from "./GenVideoNode";
+import { PanoramaSceneNode } from "./PanoramaSceneNode";
 import { PreviewNode } from "./PreviewNode";
 import { LocalSaveNode } from "./LocalSaveNode";
 import { VideoInputNode } from "./VideoInputNode";
@@ -35,6 +36,7 @@ export const nodeTypes = {
   "text-node": TextNode,
   "gen-image": GenImageNode,
   "gen-video": GenVideoNode,
+  "panorama-scene": PanoramaSceneNode,
   preview: PreviewNode,
   "local-save": LocalSaveNode,
   "video-input": VideoInputNode,

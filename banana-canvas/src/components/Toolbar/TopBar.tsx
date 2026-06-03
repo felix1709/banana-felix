@@ -17,6 +17,7 @@ import {
 import { getAutoSaveStatusText } from "../../services/projectAutoSave";
 import { saveTemporarySnapshotNow } from "../../hooks/useProjectAutoSave";
 import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
+import { dedupeCanvasEdges } from "../../utils/edgeDedup";
 import { getUiTheme, inputControlStyle, separatorStyle, statusPillStyle, toolbarButtonStyle } from "../../styles/uiTheme";
 
 interface TopBarProps {
@@ -140,7 +141,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
           canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
         });
         setNodes(data.nodes.map(toXyNode));
-        setEdges(data.edges.map(toXyEdge));
+        setEdges(dedupeCanvasEdges(data.edges).map(toXyEdge));
         setViewport(data.view);
         setProjectPath(path);
         setProjectName(data.projectName || "未命名项目");
@@ -157,7 +158,7 @@ export function TopBar({ onOpenApiSettings, onOpenKeybindingSettings, onCheckUpd
           canvasDoodleStrokes: data.canvasDoodleStrokes ?? [],
         });
         setNodes(data.nodes.map(toXyNode));
-        setEdges(data.edges.map(toXyEdge));
+        setEdges(dedupeCanvasEdges(data.edges).map(toXyEdge));
         setViewport(data.view);
         setProjectPath(null);
         setProjectName(data.projectName || "未命名项目");

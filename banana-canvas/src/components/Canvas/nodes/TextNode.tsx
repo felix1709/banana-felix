@@ -14,6 +14,8 @@ import type { TextNodeSettings } from "../../../types/settings";
 import { stripReferenceMention } from "./referenceRemoval";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
+import { CaretMenuPortal } from "./CaretMenuPortal";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 interface AtQuery {
   index: number;
@@ -185,7 +187,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
             inputType: "default",
           };
           useGraphStore.getState().addEdge(edge);
-          setXyEdges((eds) => [...eds, {
+          setXyEdges((eds) => appendUniqueXyEdge(eds, {
             id: edge.id,
             source: edge.from,
             target: edge.to,
@@ -193,7 +195,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
             targetHandle: edge.toPort,
             type: "canvas",
             data: { inputType: edge.inputType },
-          }]);
+          }));
         }
       }
       setLocalText(newVal);
@@ -431,10 +433,11 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
             }
           }}
         />
-        {atQuery && filteredMentions.length > 0 && (
-          <div
-            className="nodrag rounded-lg border shadow-lg overflow-hidden"
-            style={{
+          {atQuery && filteredMentions.length > 0 && (
+            <CaretMenuPortal>
+            <div
+              className="nodrag rounded-lg border shadow-lg overflow-hidden"
+              style={{
               ...caretMenuStyle(mentionMenuPosition, {
                 background: isDark ? "#27272a" : "#ffffff",
                 borderColor: isDark ? "#3f3f46" : "#d4d4d8",
@@ -454,6 +457,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
                   onMouseLeave={(e) => {
                     (e.currentTarget as HTMLElement).style.background = "transparent";
                   }}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(node.nodeName)}
                 >
                   {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && (
@@ -472,10 +476,11 @@ export const TextNode = memo(function TextNode({ id, data, selected }: NodeProps
                     {NODE_TYPE_LABELS[node.nodeType as NodeType]}
                   </span>
                 </button>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+            </CaretMenuPortal>
+          )}
       </div>
 
       {referenceChips.length > 0 && (

@@ -20,6 +20,8 @@ import { stripReferenceMention } from "./referenceRemoval";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
+import { CaretMenuPortal } from "./CaretMenuPortal";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 // ── Constants ──
 
@@ -135,7 +137,7 @@ function createImageNodeOnCanvas(
   };
   useGraphStore.getState().addEdge(edge);
   setNodes((nds) => [...nds, toXyNode(node)]);
-  setEdges((eds) => [...eds, toXyEdge(edge)]);
+  setEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
 }
 
 // Render only strokes on canvas (NO upstream image overlay)
@@ -354,7 +356,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
           fromPort: "default", toPort: "default", inputType: "default",
         };
         useGraphStore.getState().addEdge(edge);
-        setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+        setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
 
         // Auto-create refBinding with unused color
         const existingBinding = settings.refBindings.find((b) => b.nodeId === mentionedNode.nodeId);
@@ -1260,6 +1262,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
             style={{ minHeight: 44, ...inputStyle }} />
           {/* @-mention dropdown */}
           {atQuery && filteredMentions.length > 0 && (
+            <CaretMenuPortal>
             <div
               className="nodrag rounded-lg border shadow-lg overflow-hidden"
               style={caretMenuStyle(mentionMenuPosition, {
@@ -1273,6 +1276,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                     style={{ color: isDark ? "#e4e4e7" : "#18181b" }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDark ? "#3f3f46" : "#f4f4f5"; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => insertMention(node.nodeName)}>
                     {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && <img src={node.content} alt="" className="w-4 h-4 rounded object-cover" />}
                     {node.nodeType === "video-input" && <span className="text-[10px]" style={{ color: "#f97316" }}>▶</span>}
@@ -1283,6 +1287,7 @@ export const CanvasNodeComponent = memo(function CanvasNodeComponent({ id, selec
                 );
               })}
             </div>
+            </CaretMenuPortal>
           )}
         </div>
 

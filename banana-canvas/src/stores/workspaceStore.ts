@@ -67,7 +67,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       geminiApiKey: ls("banana_canvas_gemini_key"),
       visionModel: ls("banana_canvas_vision_model") || "qwen3-vl-plus",
       lastSavedAt: null,
-      autoSaveInterval: 5,
+      autoSaveInterval: 3,
       autoSaveEnabled: true,
       downloadDir: "",
       remoteModels: (() => {

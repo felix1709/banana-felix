@@ -8,6 +8,7 @@ import { NODE_DEFAULT_SIZES, getDefaultSettings } from "../types/node";
 import type { CanvasNode, CanvasEdge } from "../types/node";
 import { toXyNode, toXyEdge } from "../utils/nodeConvert";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../utils/materialNaming";
+import { appendUniqueXyEdge } from "../utils/edgeDedup";
 
 const POLL_INTERVAL = 2000;     // 2 seconds
 const TIMEOUT_MS = 300000;      // 5 minutes
@@ -155,7 +156,7 @@ export function useGenerationPoll(nodeId: string) {
                     inputType: "default",
                   };
                   gs.addEdge(edge);
-                  setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+                  setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
                 }
               }
             }

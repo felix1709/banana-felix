@@ -12,6 +12,7 @@ import { SessionHistoryPanel } from "./SessionHistoryPanel";
 import { shouldShowInlineOptions } from "./quickReplyOptionsUtils";
 import { v4 as uuid } from "uuid";
 import { toXyNode, toXyEdge } from "../../utils/nodeConvert";
+import { appendUniqueXyEdge } from "../../utils/edgeDedup";
 import type { CanvasNode, CanvasEdge } from "../../types/node";
 import { NODE_DEFAULT_SIZES, getDefaultSettings } from "../../types/node";
 import type { DeployPreview, OutputMode, StoryboardOutput } from "../../types/agent";
@@ -19,6 +20,7 @@ import { getMentionableNodes } from "../../hooks/useMentionParser";
 import { buildReferencedImageParts, type ReferencedImagePart } from "./agentImageMentions";
 import { parseImageNodeSpecsForAgentCommand, type AgentImageNodeSpec } from "./agentNodeCommands";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../utils/caretMenuPosition";
+import { CaretMenuPortal } from "../Canvas/nodes/CaretMenuPortal";
 
 export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const panelOpen = useAgentStore((s) => s.panelOpen);
@@ -268,7 +270,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     if (!atQuery || !inputRef.current) return;
     const current = input;
     const before = current.slice(0, atQuery.index);
-    const after = current.slice(inputRef.current.selectionStart ?? current.length);
+    const after = current.slice(atQuery.index + 1 + atQuery.text.length);
     const next = `${before}@${nodeName} ${after}`;
     setInput(next);
     setAtQuery(null);
@@ -327,7 +329,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
       };
 
       useGraphStore.getState().addEdge(edge);
-      setEdges((eds) => [...eds, toXyEdge(edge)]);
+      setEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
     }
   }, [setNodes, setEdges]);
 
@@ -691,6 +693,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
           }}
         />
         {atQuery && filteredImageMentions.length > 0 && (
+          <CaretMenuPortal>
           <div
             style={{
               ...caretMenuStyle(mentionMenuPosition, {
@@ -708,6 +711,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
               <button
                 key={node.nodeId}
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertImageMention(node.nodeName)}
                 style={{
                   width: "100%",
@@ -732,6 +736,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
               </button>
             ))}
           </div>
+          </CaretMenuPortal>
         )}
         <button
           type="button"

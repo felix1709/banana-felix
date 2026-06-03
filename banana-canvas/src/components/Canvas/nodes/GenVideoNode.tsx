@@ -20,6 +20,10 @@ import { buildVideoOutputNodeAndEdge } from "./videoOutputNode";
 import { stripReferenceMention } from "./referenceRemoval";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
+import { CaretMenuPortal } from "./CaretMenuPortal";
+import { getConnectedTextPrompt, getConnectedTextSourceCount } from "./upstreamTextPrompt";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
+import { VIDEO_RETRY_EVENT, type VideoRetryEventDetail } from "./videoRetry";
 
 // ── Preset styles ──
 
@@ -48,6 +52,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   const { setNodes: setXyNodes, setEdges: setXyEdges } = useReactFlow();
 
   const prompt = (data?.prompt as string) ?? "";
+  const [promptDraft, setPromptDraft] = useState(prompt);
 
   // @-mention state
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
@@ -61,12 +66,35 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   const [validationError, setValidationError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (document.activeElement === textareaRef.current) return;
+    setPromptDraft(prompt);
+  }, [prompt]);
+
   const mentionableNodes = useMemo(
     () => getMentionableNodes(nodes, id).filter(
-      (n) => ["input-image", "gen-image", "video-input", "gen-video", "audio-input", "gen-music", "text-node"].includes(n.nodeType),
+      (n) => ["input-image", "gen-image", "video-input", "gen-video", "audio-input", "gen-music"].includes(n.nodeType),
     ),
     [nodes, id],
   );
+
+  const upstreamTextPrompt = useMemo(
+    () => getConnectedTextPrompt(nodes, edges, id),
+    [edges, id, nodes],
+  );
+  const upstreamTextSourceCount = useMemo(
+    () => getConnectedTextSourceCount(nodes, edges, id),
+    [edges, id, nodes],
+  );
+
+  useEffect(() => {
+    if (upstreamTextSourceCount === 0) return;
+    const currentPrompt = useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
+    if (currentPrompt === upstreamTextPrompt) return;
+    updateNode(id, { prompt: upstreamTextPrompt });
+    setPromptDraft(upstreamTextPrompt);
+    setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: upstreamTextPrompt } } : n));
+  }, [id, setXyNodes, updateNode, upstreamTextPrompt, upstreamTextSourceCount]);
 
   // Connected upstream materials
   const connectedRefs = useMemo(() => {
@@ -75,6 +103,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       .map((edge) => {
         const src = nodes.find((n) => n.id === edge.from);
         if (!src) return null;
+        if (src.type === "text-node") return null;
         return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type as NodeType, content: src.content, fromPort: edge.fromPort, toPort: edge.toPort };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
@@ -95,9 +124,9 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     const selection = readTextareaSelection(e.target, val.length);
+    setPromptDraft(val);
     updateNode(id, { prompt: val });
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: val } } : n));
-    restoreTextareaSelection(textareaRef.current, selection.start);
 
     const pos = selection.start;
     const textBefore = val.slice(0, pos);
@@ -116,7 +145,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     if (!el) return;
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
-  }, [prompt]);
+  }, [promptDraft]);
 
   const appendMentionToPrompt = useCallback((refName: string) => {
     const currentPrompt = textareaRef.current?.value ?? useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
@@ -133,15 +162,16 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
           fromPort: "default", toPort: "default", inputType: "default",
         };
         useGraphStore.getState().addEdge(edge);
-        setXyEdges((eds) => [...eds, {
+        setXyEdges((eds) => appendUniqueXyEdge(eds, {
           id: edge.id, source: edge.from, target: edge.to,
           sourceHandle: edge.fromPort, targetHandle: edge.toPort,
           type: "canvas", data: { inputType: edge.inputType },
-        }]);
+        }));
       }
     }
 
     updateNode(id, { prompt: newPrompt });
+    setPromptDraft(newPrompt);
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newPrompt } } : n));
     setAtQuery(null);
     setMentionMenuPosition(null);
@@ -163,15 +193,16 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
           fromPort: "default", toPort: "default", inputType: "default",
         };
         useGraphStore.getState().addEdge(edge);
-        setXyEdges((eds) => [...eds, {
+        setXyEdges((eds) => appendUniqueXyEdge(eds, {
           id: edge.id, source: edge.from, target: edge.to,
           sourceHandle: edge.fromPort, targetHandle: edge.toPort,
           type: "canvas", data: { inputType: edge.inputType },
-        }]);
+        }));
       }
     }
 
     updateNode(id, { prompt: newVal });
+    setPromptDraft(newVal);
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newVal } } : n));
     setAtQuery(null);
     setMentionMenuPosition(null);
@@ -179,12 +210,13 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   }, [atQuery, id, updateNode, setXyNodes, setXyEdges, mentionableNodes]);
 
   const applyStyle = useCallback((style: typeof VIDEO_STYLES[number]) => {
-    const currentPrompt = prompt.trim();
+    const currentPrompt = (textareaRef.current?.value ?? promptDraft).trim();
     const newPrompt = currentPrompt ? `${currentPrompt}, ${style.prompt}` : style.prompt;
     updateNode(id, { prompt: newPrompt });
+    setPromptDraft(newPrompt);
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: newPrompt } } : n));
     setStyleOpen(false);
-  }, [id, prompt, updateNode, setXyNodes]);
+  }, [id, promptDraft, updateNode, setXyNodes]);
 
   // Assign a connected image ref to a frame slot
   const assignFrameRef = useCallback((slot: "start" | "end", nodeId: string) => {
@@ -203,6 +235,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     const currentPrompt = useGraphStore.getState().nodes.find((n) => n.id === id)?.prompt ?? "";
     const nextPrompt = stripReferenceMention(currentPrompt, ref.nodeName);
     updateNode(id, { prompt: nextPrompt });
+    setPromptDraft(nextPrompt);
     setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: nextPrompt } } : n));
 
     const patch: Partial<GenVideoSettings> = {};
@@ -237,6 +270,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
   }, [imageRefs, nodes, settings.endFrameRef]);
 
   const handleGenerate = useCallback(async () => {
+    if (submitting) return;
     // ── 1. Read LATEST settings from store (never use stale closure) ──
     const liveNode = useGraphStore.getState().nodes.find((n) => n.id === id);
     const liveSettings = (liveNode?.settings ?? settings) as GenVideoSettings;
@@ -281,6 +315,8 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         refVideoUrl = src.content;
       } else if (src.type === "audio-input" || src.type === "gen-music") {
         refAudioUrl = src.content;
+      } else if (src.type === "text-node") {
+        continue;
       } else {
         const textPrompt = src.prompt || src.content;
         upstreamPrompt = upstreamPrompt
@@ -290,7 +326,8 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     }
 
     // ── 3. Resolve @-mentioned nodes → collect their media URLs too ──
-    const effectivePrompt = [upstreamPrompt, prompt].filter(Boolean).join("\n");
+    const livePrompt = String(liveNode.prompt ?? textareaRef.current?.value ?? promptDraft ?? "");
+    const effectivePrompt = [upstreamPrompt, livePrompt].filter(Boolean).join("\n");
     if (!effectivePrompt && !startImage && !endImage && refImages.length === 0 && !refVideoUrl) {
       setValidationError("请输入提示词或指定参考素材");
       setTimeout(() => setValidationError(null), 3000);
@@ -311,11 +348,6 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         if (!refVideoUrl) refVideoUrl = mentionedNode.content;
       } else if (mentionedNode.type === "audio-input" || mentionedNode.type === "gen-music") {
         if (!refAudioUrl) refAudioUrl = mentionedNode.content;
-      } else if (mentionedNode.type === "text-node") {
-        const textNodePrompt = mentionedNode.prompt || mentionedNode.content;
-        if (textNodePrompt && !upstreamPrompt.includes(textNodePrompt)) {
-          upstreamPrompt = upstreamPrompt ? `${upstreamPrompt}\n${textNodePrompt}` : textNodePrompt;
-        }
       }
     }
 
@@ -329,7 +361,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       if (endNode?.content) endImage = endNode.content;
     }
 
-    const finalPrompt = [upstreamPrompt, prompt].filter(Boolean).join("\n");
+    const finalPrompt = [upstreamPrompt, livePrompt].filter(Boolean).join("\n");
     const anchoredPrompt = buildAnchorText(mentionResults, finalPrompt);
     const referenceImageUrl = refImages[0] || "";
 
@@ -348,7 +380,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     graph.addNode(outputNode);
     graph.addEdge(outputEdge);
     setXyNodes((nds) => [...nds, toXyNode(outputNode)]);
-    setXyEdges((eds) => [...eds, toXyEdge(outputEdge)]);
+    setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(outputEdge)));
 
     try {
       const videoBaseUrl = useWorkspaceStore.getState().videoBaseUrl;
@@ -427,7 +459,17 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
     } finally {
       setSubmitting(false);
     }
-  }, [id, prompt, settings, addJob, updateJob, appendJobLog, updateNode, setXyNodes, setXyEdges]);
+  }, [id, promptDraft, settings, addJob, updateJob, appendJobLog, updateNode, setXyNodes, setXyEdges, submitting]);
+
+  useEffect(() => {
+    const onRetry = (event: Event) => {
+      const detail = (event as CustomEvent<VideoRetryEventDetail>).detail;
+      if (detail?.sourceNodeId !== id) return;
+      void handleGenerate();
+    };
+    window.addEventListener(VIDEO_RETRY_EVENT, onRetry);
+    return () => window.removeEventListener(VIDEO_RETRY_EVENT, onRetry);
+  }, [handleGenerate, id]);
 
   const border = isDark ? "#3f3f46" : "#d4d4d8";
   const fg = isDark ? "#e4e4e7" : "#18181b";
@@ -550,7 +592,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
       <div style={{ position: "relative", marginBottom: 4 }}>
         <textarea
           ref={textareaRef}
-          value={prompt}
+          value={promptDraft}
           onChange={handlePromptChange}
           placeholder="描述你要生成的画面内容。例如:古风女战士, 长发, 红色战甲, 手持长剑..."
           className="w-full text-[11px] px-2 py-1.5 rounded-lg border outline-none resize-none nodrag"
@@ -568,6 +610,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
         />
         {/* @-mention dropdown */}
         {atQuery && filteredMentions.length > 0 && (
+          <CaretMenuPortal>
           <div className="nodrag" style={{
             ...caretMenuStyle(mentionMenuPosition, { background: inputBg, borderColor: border }),
             border: `1px solid ${border}`, borderRadius: 6,
@@ -579,6 +622,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
                 style={{ color: fg }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? "#3f3f46" : "#f4f4f5"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertMention(node.nodeName)}>
                 {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && (
                   <img src={node.content} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: "cover" }} />
@@ -590,6 +634,7 @@ export const GenVideoNode = memo(function GenVideoNode({ id, data, selected }: N
               </button>
             ))}
           </div>
+          </CaretMenuPortal>
         )}
       </div>
 

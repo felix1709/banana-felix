@@ -15,6 +15,8 @@ import type { CanvasEdge, NodeType } from "../../../types/node";
 import { stripReferenceMention } from "./referenceRemoval";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
+import { CaretMenuPortal } from "./CaretMenuPortal";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 const MUSIC_MODELS = [
   { value: "musicgen", label: "MusicGen" },
@@ -95,11 +97,11 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
           fromPort: "default", toPort: "default", inputType: "default",
         };
         useGraphStore.getState().addEdge(edge);
-        setXyEdges((eds) => [...eds, {
+        setXyEdges((eds) => appendUniqueXyEdge(eds, {
           id: edge.id, source: edge.from, target: edge.to,
           sourceHandle: edge.fromPort, targetHandle: edge.toPort,
           type: "canvas", data: { inputType: edge.inputType },
-        }]);
+        }));
       }
     }
 
@@ -207,6 +209,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
               }
             }} />
           {atQuery && filteredMentions.length > 0 && (
+            <CaretMenuPortal>
             <div
               className="nodrag rounded-lg border shadow-lg overflow-hidden"
               style={{
@@ -228,6 +231,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
                   onMouseLeave={(e) => {
                     (e.currentTarget as HTMLElement).style.background = "transparent";
                   }}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(node.nodeName)}
                 >
                   {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && (
@@ -248,6 +252,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
                 </button>
               ))}
             </div>
+            </CaretMenuPortal>
           )}
           {connectedRefs.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
@@ -256,6 +261,7 @@ export const GenMusicNode = memo(function GenMusicNode({ id, selected }: NodePro
                   key={ref.edgeId}
                   type="button"
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border nodrag"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(ref.nodeName)}
                   title={`插入 @${ref.nodeName}`}
                   style={{

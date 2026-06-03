@@ -4,7 +4,7 @@ import { NODE_TYPE_LABELS, type NodeType } from "../../types/node";
 
 const NODE_CATEGORIES: Record<string, NodeType[]> = {
   "输入": ["input-image", "text-node", "video-input", "audio-input"],
-  "生成": ["gen-image", "gen-video", "gen-music"],
+  "生成": ["gen-image", "gen-video", "panorama-scene", "gen-music"],
   "编辑": ["inpaint-crop", "inpaint-stitch", "jimeng-super-resolution", "topaz-upscale"],
   "画板": ["canvas-node", "doodle-canvas"],
   "影视": ["camera-movement", "professional-camera", "global-perspective"],

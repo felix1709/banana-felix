@@ -16,6 +16,7 @@ import type { InpaintCropSettings } from "../../../types/settings";
 import { IMAGE_MODELS } from "../../../types/model";
 import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 // ── Helpers ──
 
@@ -83,7 +84,7 @@ function createImageNodeOnCanvas(
   useGraphStore.getState().addEdge(edge);
 
   setNodes((nds) => [...nds, toXyNode(node)]);
-  setEdges((eds) => [...eds, toXyEdge(edge)]);
+  setEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
 }
 
 // Split image into grid tiles using Canvas API
@@ -308,7 +309,7 @@ export const InpaintCropNode = memo(function InpaintCropNode({ id, selected }: N
         useGraphStore.getState().addEdge(edge);
 
         setXyNodes((nds) => [...nds, toXyNode(node)]);
-        setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+        setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
       }
 
       useUIStore.getState().addToast("success", `已裁剪 ${tiles.length} 张图片`);

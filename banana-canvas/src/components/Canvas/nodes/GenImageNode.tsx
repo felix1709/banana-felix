@@ -13,7 +13,7 @@ import type { GenImageSettings } from "../../../types/settings";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { getImageModelOptions } from "./imageModelOptions";
 import { v4 as uuid } from "uuid";
-import { parseMentions, getMentionableNodes, buildMergedPrompt } from "../../../hooks/useMentionParser";
+import { parseMentions, getMentionableNodes } from "../../../hooks/useMentionParser";
 import { buildAnchorText } from "../../../hooks/useAnchorText";
 import { NODE_TYPE_LABELS, NODE_DEFAULT_SIZES, getDefaultSettings } from "../../../types/node";
 import type { NodeType, CanvasEdge, CanvasNode } from "../../../types/node";
@@ -23,6 +23,9 @@ import { UpstreamReferenceHeader } from "./UpstreamReferenceHeader";
 import { getMaterialFileName, getNextMaterialName, getNextMaterialOrder } from "../../../utils/materialNaming";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../../utils/caretMenuPosition";
 import { insertMentionAtSelection, readTextareaSelection, restoreTextareaSelection } from "./promptInsertion";
+import { CaretMenuPortal } from "./CaretMenuPortal";
+import { getConnectedTextPrompt, getConnectedTextSourceCount } from "./upstreamTextPrompt";
+import { appendUniqueXyEdge } from "../../../utils/edgeDedup";
 
 export const GenImageNode = memo(function GenImageNode({ id, data, selected }: NodeProps) {
   const theme = useUIStore((s) => s.theme);
@@ -66,6 +69,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
         const handle = edge.toPort ?? "default";
         if (handle === "sref" || handle === "oref") return null;
         if ((src.type === "input-image" || src.type === "gen-image") && src.content) return null;
+        if (src.type === "text-node") return null;
         return { edgeId: edge.id, nodeId: src.id, nodeName: src.nodeName, nodeType: src.type, content: src.content };
       })
       .filter((ref): ref is NonNullable<typeof ref> => ref !== null);
@@ -73,31 +77,23 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
 
   // Compute merged upstream prompt text (for auto-fill)
   const upstreamMergedText = useMemo(() => {
-    const incoming = edges.filter((e) => e.to === id);
-    const parts: string[] = [];
-    for (const edge of incoming) {
-      const src = nodes.find((n) => n.id === edge.from);
-      if (!src) continue;
-      const handle = edge.toPort ?? "default";
-      if (handle === "sref" || handle === "oref") continue;
-      if (src.type === "input-image" || src.type === "gen-image") continue;
-      const merged = buildMergedPrompt(src);
-      if (merged) parts.push(merged);
-    }
-    return parts.join("\n");
+    return getConnectedTextPrompt(nodes, edges, id);
   }, [edges, id, nodes]);
+  const upstreamTextSourceCount = useMemo(
+    () => getConnectedTextSourceCount(nodes, edges, id),
+    [edges, id, nodes],
+  );
 
-  // Auto-sync upstream text into localPrompt when isAutoPrompt is true
+  // Connected text nodes are pure prompt data sources and always stay synced.
   const isAutoPrompt = settings.isAutoPrompt ?? true;
   useEffect(() => {
-    if (!isAutoPrompt) return;
+    if (upstreamTextSourceCount === 0) return;
     const currentLocal = settings.localPrompt ?? "";
-    // Only update if upstream text differs from what's currently in the prompt
     if (upstreamMergedText !== currentLocal) {
       updateSettings({ localPrompt: upstreamMergedText });
       setXyNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, prompt: upstreamMergedText } } : n));
     }
-  }, [upstreamMergedText, isAutoPrompt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [upstreamMergedText, upstreamTextSourceCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When a new edge connects to this node, reset isAutoPrompt so content auto-fills
   const prevEdgeCount = useRef(edges.filter((e) => e.to === id).length);
@@ -199,11 +195,11 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
           fromPort: "default", toPort: "default", inputType: "default",
         };
         useGraphStore.getState().addEdge(edge);
-        setXyEdges((eds) => [...eds, {
+        setXyEdges((eds) => appendUniqueXyEdge(eds, {
           id: edge.id, source: edge.from, target: edge.to,
           sourceHandle: edge.fromPort, targetHandle: edge.toPort,
           type: "canvas", data: { inputType: edge.inputType },
-        }]);
+        }));
       }
     }
 
@@ -378,7 +374,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
       inputType: "default",
     };
     gs.addEdge(edge);
-    setXyEdges((eds) => [...eds, toXyEdge(edge)]);
+    setXyEdges((eds) => appendUniqueXyEdge(eds, toXyEdge(edge)));
   }, [id, setXyNodes, setXyEdges]);
 
   // ── Prompt presets: quick-fill buttons ──
@@ -491,6 +487,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
         />
         {/* @-mention dropdown */}
         {atQuery && filteredMentions.length > 0 && (
+          <CaretMenuPortal>
           <div
             className="nodrag rounded-lg border shadow-lg overflow-hidden"
             style={{
@@ -513,6 +510,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
                   onMouseLeave={(e) => {
                     (e.currentTarget as HTMLElement).style.background = "transparent";
                   }}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertMention(node.nodeName)}
                 >
                   {(node.nodeType === "input-image" || node.nodeType === "gen-image") && node.content && (
@@ -534,6 +532,7 @@ export const GenImageNode = memo(function GenImageNode({ id, data, selected }: N
               );
             })}
           </div>
+          </CaretMenuPortal>
         )}
         {/* Reference image chips */}
         {referenceImages.length > 0 && (

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type { CanvasNode, CanvasEdge, Group, DoodleStroke, TextBox, ViewState } from "../types/node";
+import { appendUniqueCanvasEdge, dedupeCanvasEdges } from "../utils/edgeDedup";
 
 interface GraphState {
   nodes: CanvasNode[];
@@ -107,7 +108,7 @@ export const useGraphStore = create<GraphState>()(
 
     addEdge: (edge) =>
       set((state) => {
-        state.edges.push(edge);
+        state.edges = appendUniqueCanvasEdge(state.edges, edge);
       }),
 
     removeEdge: (id) =>
@@ -201,7 +202,7 @@ export const useGraphStore = create<GraphState>()(
     loadGraph: (nodes, edges, groups, extras) =>
       set((state) => {
         state.nodes = nodes;
-        state.edges = edges;
+        state.edges = dedupeCanvasEdges(edges);
         state.groups = groups;
         if (extras?.view) state.view = extras.view;
         if (extras?.canvasTextBoxes) state.canvasTextBoxes = extras.canvasTextBoxes;

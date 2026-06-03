@@ -45,6 +45,7 @@ export const NODE_PORT_CONFIG: Partial<Record<NodeType, { inputs: PortConfig[]; 
     inputs: [{ id: "default", label: "参考", position: 0.5 }],
     outputs: [{ id: "default", position: 0.5 }],
   },
+  "panorama-scene": { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   preview: { inputs: [{ id: "default" }], outputs: [{ id: "default" }] },
   "local-save": { inputs: [{ id: "default" }], outputs: [] },
   // ── 镜头运动组 ──

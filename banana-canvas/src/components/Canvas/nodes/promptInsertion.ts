@@ -5,6 +5,7 @@ export interface TextSelectionRange {
 
 export interface AtQueryRange {
   index: number;
+  text?: string;
 }
 
 export function readTextareaSelection(
@@ -40,7 +41,10 @@ export function insertMentionAtSelection(
 ): { nextText: string; cursor: number } {
   const mention = `@${refName} `;
   const start = atQuery ? atQuery.index : selection.start;
-  const end = atQuery ? selection.start : selection.end;
+  const queryEnd = atQuery
+    ? atQuery.index + 1 + (atQuery.text?.length ?? Math.max(0, selection.start - atQuery.index - 1))
+    : selection.end;
+  const end = atQuery ? queryEnd : selection.end;
   const before = currentText.slice(0, start);
   const after = currentText.slice(end);
   const prefix = !atQuery && before.length > 0 && !/\s$/.test(before) ? " " : "";

@@ -544,8 +544,19 @@ function hasInlineVideoMedia(req: VideoGenerateRequest): boolean {
   ].some(isInlineMediaUrl);
 }
 
+function buildVideoInstructionPrompt(req: VideoGenerateRequest): string {
+  const settings = [
+    `duration=${req.duration}s`,
+    `fps=${req.fps}`,
+    `resolution=${req.resolution}`,
+    `aspect_ratio=${req.ratio || "16:9"}`,
+  ];
+  if (req.generateAudio !== undefined) settings.push(`audio=${req.generateAudio ? "on" : "off"}`);
+  return `Video generation settings: ${settings.join(", ")}. Follow these settings exactly.\n${req.prompt}`;
+}
+
 function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
-  const parts: VideoContentPart[] = [{ type: "text", text: req.prompt }];
+  const parts: VideoContentPart[] = [{ type: "text", text: buildVideoInstructionPrompt(req) }];
   const pushImage = (url: string | undefined, role: "user" | "reference") => {
     if (!url) return;
     if (parts.some((part) => part.type === "image_url" && part.image_url.url === url && part.role === role)) return;
@@ -563,16 +574,23 @@ function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
 
 export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<string, unknown> {
   const firstFrameImage = req.startImage || req.referenceImageUrl || undefined;
+  const promptWithSettings = buildVideoInstructionPrompt(req);
   const contentParts = buildVideoContentParts(req);
   const compactMediaAliases = hasInlineVideoMedia(req);
   const shouldAliasMedia = (url: string | undefined) => url && !isInlineMediaUrl(url);
   const aliasImages = (req.images ?? []).filter((url) => !isInlineMediaUrl(url));
   const body: Record<string, unknown> = {
     model: req.model,
-    prompt: req.prompt,
+    prompt: promptWithSettings,
     negative_prompt: req.negativePrompt || undefined,
     duration: req.duration,
     duration_seconds: req.duration,
+    duration_s: req.duration,
+    duration_sec: req.duration,
+    durationSeconds: req.duration,
+    video_duration: req.duration,
+    videoDuration: req.duration,
+    seconds: String(req.duration),
     fps: req.fps,
     resolution: req.resolution,
     seed: req.seed,
@@ -683,7 +701,7 @@ async function generateVideoViaImageEndpoint(
   // Build image-generation-style body with video-specific fields
   const body: Record<string, unknown> = {
     model: req.model,
-    prompt: req.prompt,
+    prompt: buildVideoInstructionPrompt(req),
     n: 1,
     size: req.ratio || "16:9",
     aspect_ratio: req.ratio || "16:9",
@@ -694,6 +712,12 @@ async function generateVideoViaImageEndpoint(
   if (req.negativePrompt) body.negative_prompt = req.negativePrompt;
   if (req.duration) body.duration = req.duration;
   if (req.duration) body.duration_seconds = req.duration;
+  if (req.duration) body.duration_s = req.duration;
+  if (req.duration) body.duration_sec = req.duration;
+  if (req.duration) body.durationSeconds = req.duration;
+  if (req.duration) body.video_duration = req.duration;
+  if (req.duration) body.videoDuration = req.duration;
+  if (req.duration) body.seconds = String(req.duration);
   if (req.fps) body.fps = req.fps;
   if (req.resolution) body.resolution = req.resolution;
   if (req.seed !== undefined) body.seed = req.seed;
