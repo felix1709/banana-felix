@@ -1,4 +1,9 @@
-import { buildImageGenerationBody, type ImageGenerateRequest } from "./apiService.js";
+import {
+  buildImageGenerationBody,
+  canUseLegacyImageGenerateFallback,
+  canUseTextOnlyImageGenerationFallback,
+  type ImageGenerateRequest,
+} from "./apiService.js";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -30,3 +35,19 @@ assert(body.high_resolution === true, "passes high-resolution enhancement flag")
 assert(body.detail_enhance === true, "passes detail enhancement flag");
 assert(body.steps === 40, "passes sampling steps");
 assert(body.disable_downsampling === true, "passes no-downsampling flag");
+
+const requiredReferenceRequest: ImageGenerateRequest = {
+  model: "gpt-image-2",
+  prompt: "turn this uploaded scene into a panorama",
+  referenceImage: "data:image/png;base64,scene",
+  requireReferenceImage: true,
+};
+
+assert(
+  !canUseTextOnlyImageGenerationFallback(requiredReferenceRequest, [requiredReferenceRequest.referenceImage || ""]),
+  "does not fall back to text-only generation when a reference image is mandatory",
+);
+assert(
+  !canUseLegacyImageGenerateFallback(requiredReferenceRequest, [requiredReferenceRequest.referenceImage || ""]),
+  "does not call legacy image fallback endpoints when a reference image is mandatory",
+);

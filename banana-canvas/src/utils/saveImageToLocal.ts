@@ -3,6 +3,33 @@ export interface SavedImageBytes {
   ext: string;
 }
 
+export interface SavedImageLocation {
+  saved: true;
+  fileName: string;
+  locationLabel: string;
+  mode: "file" | "picker";
+}
+
+interface BrowserWritableFile {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface BrowserFileHandle {
+  name?: string;
+  createWritable(): Promise<BrowserWritableFile>;
+}
+
+interface SaveFilePickerWindow extends Window {
+  showSaveFilePicker?: (options: {
+    suggestedName?: string;
+    types?: Array<{
+      description: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<BrowserFileHandle>;
+}
+
 function getExtFromMime(mime: string): string {
   if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
   if (mime.includes("webp")) return "webp";
@@ -53,9 +80,10 @@ export async function readImageSourceBytes(imageUrl: string): Promise<SavedImage
   return { bytes: new Uint8Array(arrayBuf), ext };
 }
 
-export async function saveImageSourceToLocal(imageUrl: string, baseName: string): Promise<boolean> {
+export async function saveImageSourceToLocal(imageUrl: string, baseName: string): Promise<SavedImageLocation | null> {
   const { bytes, ext } = await readImageSourceBytes(imageUrl);
   const fileName = `${safeBaseName(baseName)}.${ext}`;
+  const mime = `image/${ext === "jpg" ? "jpeg" : ext}`;
   const isTauriApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   if (isTauriApp) {
@@ -66,24 +94,51 @@ export async function saveImageSourceToLocal(imageUrl: string, baseName: string)
         defaultPath: fileName,
         filters: [{ name: "Images", extensions: [ext] }],
       });
-      if (!filePath) return false;
+      if (!filePath) return null;
       await writeFile(filePath, bytes);
-      return true;
+      return {
+        saved: true,
+        fileName,
+        locationLabel: filePath,
+        mode: "file",
+      };
     } catch (err) {
       if (err instanceof Error && err.message?.toLowerCase().includes("cancel")) {
-        return false;
+        return null;
       }
     }
   }
 
-  const blob = new Blob([bytes], { type: `image/${ext === "jpg" ? "jpeg" : ext}` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-  return true;
+  const browserWindow = typeof window !== "undefined"
+    ? window as SaveFilePickerWindow
+    : undefined;
+  if (!browserWindow?.showSaveFilePicker) {
+    throw new Error("当前环境不支持选择保存位置，请在桌面应用中保存原图。");
+  }
+
+  let handle: BrowserFileHandle;
+  try {
+    handle = await browserWindow.showSaveFilePicker({
+      suggestedName: fileName,
+      types: [{
+        description: "Images",
+        accept: { [mime]: [`.${ext}`] },
+      }],
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return null;
+    }
+    throw error;
+  }
+
+  const writable = await handle.createWritable();
+  await writable.write(new Blob([bytes], { type: mime }));
+  await writable.close();
+  return {
+    saved: true,
+    fileName,
+    locationLabel: handle.name || fileName,
+    mode: "picker",
+  };
 }

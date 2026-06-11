@@ -1,7 +1,9 @@
 import {
+  calculateEquirectangularVerticalFov,
   clampFov,
   detectCubemapLayout,
   directionToCubemapFace,
+  calculatePanoramaCanvasRenderSize,
   getDownsampledSize,
   getSafeCanvasDpr,
   movePanoramaView,
@@ -18,6 +20,11 @@ assert(normalizeYaw(370) === 10, "wraps yaw over 360 degrees");
 assert(normalizeYaw(-10) === 350, "wraps negative yaw into positive range");
 assert(clampFov(10) === 30, "clamps narrow fov");
 assert(clampFov(140) === 100, "clamps wide fov");
+assert(Math.abs(calculateEquirectangularVerticalFov(60, 1000, 1000) - 60) < 0.001, "square panorama preview keeps matching vertical fov");
+assert(calculateEquirectangularVerticalFov(60, 1000, 500) < 40, "wide panorama preview narrows vertical fov to avoid vertical stretch");
+const transformedCanvasSize = calculatePanoramaCanvasRenderSize(442, 220, 651.47, 324.26);
+assert(transformedCanvasSize.width === 651, "uses the visually displayed canvas width when React Flow zoom scales the node");
+assert(transformedCanvasSize.height === 324, "uses the visually displayed canvas height when React Flow zoom scales the node");
 assert(getSafeCanvasDpr(300, 200, 2) === 2, "keeps DPR for small canvases");
 assert(getSafeCanvasDpr(4000, 3000, 2) < 1, "reduces DPR for huge canvases");
 
@@ -40,7 +47,7 @@ assert(Math.abs(dragged.pitch - 7) < 0.001, "dragging down rotates the panorama 
 
 assert(shouldUseOriginalPanoramaImage(4096, 2048, "equirectangular"), "uses 4K equirectangular original without recompressing");
 assert(shouldUseOriginalPanoramaImage(6144, 1024, "cubemap"), "uses 1024px cubemap strip original without recompressing");
-assert(!shouldUseOriginalPanoramaImage(12000, 6000, "equirectangular"), "downsamples unsafe ultra-large panoramas");
+assert(shouldUseOriginalPanoramaImage(12000, 6000, "equirectangular"), "keeps ultra-large panoramas uncompressed while under the hard safety limit");
 
 const stripLayout = detectCubemapLayout(6144, 1024);
 assert(stripLayout?.type === "horizontal-strip", "detects six-face horizontal cubemap strips");

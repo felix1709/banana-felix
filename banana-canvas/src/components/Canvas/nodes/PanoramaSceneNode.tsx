@@ -21,8 +21,8 @@ import { buildPanoramaImageRequest } from "./panoramaGeneration";
 import { buildPanoramaPrompt } from "./panoramaPrompt";
 import {
   clampFov,
+  calculatePanoramaCanvasRenderSize,
   detectCubemapLayout,
-  getDownsampledSize,
   getSafeCanvasDpr,
   movePanoramaView,
   renderCubemapPanorama,
@@ -51,13 +51,8 @@ const LENS_FOV: Record<PanoramaSceneSettings["lens"], number> = {
   "85mm": 28,
 };
 
-const MAX_EQUIRECT_PREVIEW_WIDTH = 8192;
-const MAX_EQUIRECT_PREVIEW_HEIGHT = 4096;
-const MAX_CUBEMAP_PREVIEW_WIDTH = 6144;
-const MAX_CUBEMAP_PREVIEW_HEIGHT = 4096;
 const MAX_CANVAS_PIXELS = 900_000;
 const MAX_CUBEMAP_CANVAS_PIXELS = 420_000;
-const MAX_SOURCE_PIXELS = 96_000_000;
 
 function getImageNaturalSize(image: HTMLImageElement): { width: number; height: number } {
   return {
@@ -85,29 +80,6 @@ function loadImageElement(src: string, useCors = false): Promise<HTMLImageElemen
   });
 }
 
-function drawDownsampledCanvas(
-  image: HTMLImageElement,
-  format: PanoramaSceneSettings["format"],
-): { canvas: HTMLCanvasElement; scale: number } {
-  const { width, height } = getImageNaturalSize(image);
-  if (width * height > MAX_SOURCE_PIXELS) {
-    throw new Error("全景图分辨率过大，已阻止加载以避免应用崩溃。请先压缩图片后再导入。");
-  }
-  const limits = format === "cubemap"
-    ? { width: MAX_CUBEMAP_PREVIEW_WIDTH, height: MAX_CUBEMAP_PREVIEW_HEIGHT }
-    : { width: MAX_EQUIRECT_PREVIEW_WIDTH, height: MAX_EQUIRECT_PREVIEW_HEIGHT };
-  const next = getDownsampledSize(width, height, limits.width, limits.height);
-  const canvas = document.createElement("canvas");
-  canvas.width = next.width;
-  canvas.height = next.height;
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("无法创建全景预览画布");
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, 0, 0, next.width, next.height);
-  return { canvas, scale: next.scale };
-}
-
 async function createSafePreviewImage(
   image: HTMLImageElement,
   format: PanoramaSceneSettings["format"],
@@ -116,31 +88,21 @@ async function createSafePreviewImage(
   if (shouldUseOriginalPanoramaImage(width, height, format)) {
     return { image, width, height };
   }
-  const { canvas } = drawDownsampledCanvas(image, format);
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-  const safeImage = await loadImageElement(dataUrl);
-  return { image: safeImage, width: safeImage.width, height: safeImage.height };
+  throw new Error("全景图分辨率过大，已阻止加载以避免应用崩溃。请先压缩图片后再导入。");
 }
 
 async function prepareLocalPanoramaDataUrl(
   file: File,
   format: PanoramaSceneSettings["format"],
-): Promise<{ dataUrl: string; downsampled: boolean }> {
+): Promise<string> {
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await loadImageElement(objectUrl);
     const { width, height } = getImageNaturalSize(image);
-    const limits = format === "cubemap"
-      ? { width: MAX_CUBEMAP_PREVIEW_WIDTH, height: MAX_CUBEMAP_PREVIEW_HEIGHT }
-      : { width: MAX_EQUIRECT_PREVIEW_WIDTH, height: MAX_EQUIRECT_PREVIEW_HEIGHT };
-    const mustDownsample = !shouldUseOriginalPanoramaImage(width, height, format)
-      || width > limits.width
-      || height > limits.height;
-    if (!mustDownsample) {
-      return { dataUrl: await readFileAsDataUrl(file), downsampled: false };
+    if (!shouldUseOriginalPanoramaImage(width, height, format)) {
+      throw new Error("全景图分辨率过大，已阻止加载以避免应用崩溃。请先压缩图片后再导入。");
     }
-    const { canvas } = drawDownsampledCanvas(image, format);
-    return { dataUrl: canvas.toDataURL("image/jpeg", 0.88), downsampled: true };
+    return await readFileAsDataUrl(file);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -202,9 +164,16 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     const wrap = wrapRef.current;
     const image = imageRef.current;
     if (!canvas || !wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height));
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    const wrapRect = wrap.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const { width, height } = calculatePanoramaCanvasRenderSize(
+      wrap.clientWidth,
+      wrap.clientHeight,
+      canvasRect.width || wrapRect.width,
+      canvasRect.height || wrapRect.height,
+    );
     const dpr = getSafeCanvasDpr(
       width,
       height,
@@ -214,8 +183,6 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
     }
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -413,15 +380,12 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     setImageStatus("loading");
     setLoadError("");
     try {
-      const { dataUrl, downsampled } = await prepareLocalPanoramaDataUrl(file, settings.format || "equirectangular");
+      const dataUrl = await prepareLocalPanoramaDataUrl(file, settings.format || "equirectangular");
       updateSettings({ panoramaImage: dataUrl });
       updateNode(id, { content: dataUrl });
       setXyNodes((nds) => nds.map((xyNode) => (
         xyNode.id === id ? { ...xyNode, data: { ...xyNode.data, content: dataUrl } } : xyNode
       )));
-      if (downsampled) {
-        useUIStore.getState().addToast("info", "全景图较大，已自动压缩为预览安全尺寸，避免卡死或闪退");
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "全景图处理失败";
       setImageStatus("failed");
@@ -468,7 +432,10 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
     try {
       const saved = await saveImageSourceToLocal(panoramaImage, node?.nodeName || "panorama");
       if (saved) {
-        useUIStore.getState().addToast("success", "\u539f\u56fe\u5df2\u4fdd\u5b58");
+        const locationText = saved.mode === "file"
+          ? `原图已保存到：${saved.locationLabel}`
+          : `原图已保存到你选择的位置：${saved.locationLabel}`;
+        useUIStore.getState().addToast("success", locationText);
       }
     } catch (error) {
       useUIStore.getState().addToast("error", error instanceof Error ? error.message : "\u539f\u56fe\u4fdd\u5b58\u5931\u8d25");
@@ -635,7 +602,10 @@ export const PanoramaSceneNode = memo(function PanoramaSceneNode({ id, selected 
       tabIndex={0}
       className="nodrag nowheel relative overflow-hidden rounded-lg outline-none"
       style={{
-        height: isFullscreen ? "100%" : 210,
+        width: "100%",
+        height: isFullscreen ? "100%" : undefined,
+        aspectRatio: isFullscreen ? undefined : "2 / 1",
+        minHeight: isFullscreen ? undefined : 150,
         background: isDark ? "#09090b" : "#e4e4e7",
         border: `1px solid ${isDark ? "#3f3f46" : "#d4d4d8"}`,
         cursor: "grab",

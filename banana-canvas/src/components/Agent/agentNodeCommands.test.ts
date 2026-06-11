@@ -1,4 +1,4 @@
-import { isImageNodeGenerationRequest, parseImageNodeSpecsForAgentCommand, parseRoleImageNodeSpecs } from "./agentNodeCommands.js";
+import { cleanPromptTextForCanvas, isImageNodeGenerationRequest, parseImageNodeSpecsForAgentCommand, parseRoleImageNodeSpecs } from "./agentNodeCommands.js";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -43,3 +43,26 @@ assert(genericSpecs.length === 2, "splits generic complete prompts by markdown t
 assert(genericSpecs[0].nodeName === "白泽密林完整提示词", "uses title as generic image node name");
 assert(genericSpecs[0].prompt === longPrompt, "keeps the full long prompt without truncation");
 assert(genericSpecs[1].prompt.includes("主体：女孩穿过山谷"), "keeps second section content");
+
+const noisyPrompt = `我先帮你整理好了，可以直接使用。
+
+## 最终提示词
+年轻女孩站在雨夜街口，黑色风衣，霓虹灯反射在湿润地面，电影感构图，冷蓝色光影，高清细节。
+
+需要我把本次整理好的提示词，自动拆分并部署对应画布节点吗？
+
+[OPTIONS]
+- 确认部署
+- 不用
+- ✏️ 自定义
+[/OPTIONS]`;
+
+const cleanedPrompt = cleanPromptTextForCanvas(noisyPrompt);
+assert(cleanedPrompt.includes("年轻女孩站在雨夜街口"), "keeps effective visual prompt content");
+assert(!cleanedPrompt.includes("需要我"), "removes deployment question");
+assert(!cleanedPrompt.includes("[OPTIONS]"), "removes options blocks");
+assert(!cleanedPrompt.includes("确认部署"), "removes option labels");
+
+const singleSpecs = parseImageNodeSpecsForAgentCommand("确认部署", noisyPrompt);
+assert(singleSpecs.length === 1, "creates only one node for one complete image prompt");
+assert(singleSpecs[0].prompt === "年轻女孩站在雨夜街口，黑色风衣，霓虹灯反射在湿润地面，电影感构图，冷蓝色光影，高清细节。", "uses only cleaned prompt text");

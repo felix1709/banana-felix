@@ -1,6 +1,14 @@
 import { parseOptionsFromText } from "./optionsParser.js";
 import {
+  EMOTION_DIRECTOR_SKILL_PATH,
   extractPromptOptimizeText,
+  getAllSkills,
+  getJiaojiaoSystemPrompt,
+  getSkill,
+  JIAOJIAO_HOME_OPTIONS,
+  isEmotionDirectorRequired,
+  isLineArtStoryboardIntent,
+  isPromptLibraryIntent,
   isPromptOptimizeIntent,
   isStoryboardIntent,
   parseStoryboardFromText,
@@ -39,6 +47,30 @@ assert(openEnded.option?.options[0] === "🎬 视频广告（15-60秒）", "keep
 assert(openEnded.option?.options[openEnded.option.options.length - 1] === "✏️ 自定义", "normalizes custom from open-ended block");
 
 assert(isStoryboardIntent("帮我做一个分镜"), "detects Chinese storyboard intent");
+const promptLibraryName = "\u63d0\u793a\u8bcd\u5e93";
+const lineArtStoryboardName = "\u7ebf\u7a3f\u6545\u4e8b\u677f";
+const emotionDirectorName = "\u60c5\u7eea\u8868\u6f14\u5bfc\u6f14";
+
+assert(JIAOJIAO_HOME_OPTIONS.includes(promptLibraryName), "shows prompt library on Jiaojiao startup");
+assert(JIAOJIAO_HOME_OPTIONS.includes(lineArtStoryboardName), "shows line-art storyboard on Jiaojiao startup");
+assert(isPromptLibraryIntent(promptLibraryName), "detects prompt library entry click");
+assert(isLineArtStoryboardIntent(lineArtStoryboardName), "detects line-art storyboard entry click");
+assert(isStoryboardIntent(lineArtStoryboardName), "line-art storyboard entry activates storyboard flow");
+assert(getSkill("prompt-library")?.name === promptLibraryName, "registers prompt library skill metadata");
+assert(getSkill("line-art-storyboard")?.name === lineArtStoryboardName, "registers line-art storyboard display name");
+assert(getSkill("emotion-director")?.name === emotionDirectorName, "registers emotion director skill metadata");
+assert(getSkill("emotion-director")?.sourcePath === EMOTION_DIRECTOR_SKILL_PATH, "keeps emotion director local skill path");
+assert(getAllSkills().some((skill) => skill.id === "prompt-library"), "includes prompt library in skill list");
+assert(getAllSkills().some((skill) => skill.id === "line-art-storyboard"), "includes line-art storyboard in skill list");
+assert(getAllSkills().some((skill) => skill.id === "emotion-director"), "includes emotion director in skill list");
+assert(isEmotionDirectorRequired("制作一个视频镜头，角色转身落泪"), "auto-links emotion director for video shots");
+assert(isEmotionDirectorRequired("帮我做线稿故事板"), "auto-links emotion director for line-art storyboard");
+assert(!isEmotionDirectorRequired("生成一个空旷室内场景"), "does not force emotion director for non-character scene requests");
+const lineArtPrompt = getJiaojiaoSystemPrompt(true, "line-art-storyboard");
+assert(lineArtPrompt.includes(emotionDirectorName), "line-art storyboard prompt links emotion director");
+assert(lineArtPrompt.includes("20字以内"), "emotion performance stays under 20 Chinese characters");
+assert(lineArtPrompt.includes("单独拆分独立文本节点"), "requires separate emotion text nodes for deployment");
+
 assert(isStoryboardIntent("Please create a storyboard"), "detects English storyboard intent");
 assert(isStoryboardIntent("把这个故事拆镜"), "detects shot breakdown intent");
 assert(!isStoryboardIntent("帮我生成一张产品海报图"), "does not trigger for plain image generation");

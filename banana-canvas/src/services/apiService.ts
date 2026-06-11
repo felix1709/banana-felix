@@ -66,6 +66,7 @@ export interface ImageGenerateRequest {
   referenceImages?: string[];
   sref?: string;
   oref?: string;
+  requireReferenceImage?: boolean;
   extra?: Record<string, unknown>;
 }
 
@@ -102,6 +103,23 @@ export function buildImageGenerationBody(req: ImageGenerateRequest, defaultSize 
     for (const [key, value] of Object.entries(req.extra)) {
       if (value !== undefined && value !== null) body[key] = value;
     }
+  }
+  return body;
+}
+
+export function canUseTextOnlyImageGenerationFallback(req: ImageGenerateRequest, refImages: string[]): boolean {
+  return !(req.requireReferenceImage && refImages.length > 0);
+}
+
+export function canUseLegacyImageGenerateFallback(req: ImageGenerateRequest, refImages: string[]): boolean {
+  return !(req.requireReferenceImage && refImages.length > 0);
+}
+
+function buildImageGenerationBodyWithReferences(req: ImageGenerateRequest): Record<string, unknown> {
+  const body = buildImageGenerationBody(req);
+  if (req.referenceImage) body.referenceImage = req.referenceImage;
+  if (req.referenceImages && req.referenceImages.length > 0) {
+    body.images = req.referenceImages;
   }
   return body;
 }
@@ -150,6 +168,9 @@ async function generateImageStandard(req: ImageGenerateRequest, refImages: strin
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.log(`[Standard] /v1/images/edits FAILED: ${errMsg.slice(0, 200)}`);
+      if (!canUseTextOnlyImageGenerationFallback(req, refImages)) {
+        throw new Error(`参考图是必需的，但当前 API 的 /v1/images/edits 带图生成失败：${errMsg}`);
+      }
     }
   }
 
@@ -177,15 +198,13 @@ async function generateImageStandard(req: ImageGenerateRequest, refImages: strin
 
     // ── Fallback: /api/v1/image/generate ──
     try {
-      const fallbackBody = buildImageGenerationBody(req);
-      if (req.referenceImage) fallbackBody.referenceImage = req.referenceImage;
-      if (req.referenceImages && req.referenceImages.length > 0) {
-        fallbackBody.images = req.referenceImages;
+      if (!canUseLegacyImageGenerateFallback(req, refImages)) {
+        throw err;
       }
       return await apiRequest<TaskResponse>({
         method: "POST",
         path: "/api/v1/image/generate",
-        body: fallbackBody,
+        body: buildImageGenerationBodyWithReferences(req),
       });
     } catch {
       throw err;
@@ -204,7 +223,7 @@ async function generateImageGemini(req: ImageGenerateRequest, refImages: string[
 
   // Build URLs to try — geminiBaseUrl first (if configured), then default
   const urlsToTry: Array<{ url: string; key: string; label: string }> = [];
-  if (geminiBaseUrl) {
+  if (geminiBaseUrl && canUseTextOnlyImageGenerationFallback(req, refImages)) {
     urlsToTry.push({ url: geminiBaseUrl, key: geminiApiKey || "", label: "geminiBaseUrl" });
   }
   if (defaultBaseUrl && defaultBaseUrl !== geminiBaseUrl) {
@@ -570,13 +589,24 @@ function buildVideoContentParts(req: VideoGenerateRequest): VideoContentPart[] {
   return parts;
 }
 
+function uniqueMediaUrls(urls: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+  }
+  return result;
+}
+
 export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<string, unknown> {
   const firstFrameImage = req.startImage || req.referenceImageUrl || undefined;
   const promptWithSettings = buildVideoInstructionPrompt(req);
   const contentParts = buildVideoContentParts(req);
   const compactMediaAliases = hasInlineVideoMedia(req);
-  const shouldAliasMedia = (url: string | undefined) => url && !isInlineMediaUrl(url);
-  const aliasImages = (req.images ?? []).filter((url) => !isInlineMediaUrl(url));
+  const shouldAliasMedia = (url: string | undefined) => !!url;
+  const aliasImages = uniqueMediaUrls([req.referenceImageUrl, ...(req.images ?? [])]);
   const body: Record<string, unknown> = {
     model: req.model,
     prompt: promptWithSettings,
@@ -611,8 +641,10 @@ export function buildVideoGenerationBody(req: VideoGenerateRequest): Record<stri
     last_frame_image: shouldAliasMedia(req.endImage) ? req.endImage : undefined,
     audio_url: shouldAliasMedia(req.referenceAudioUrl) ? req.referenceAudioUrl : undefined,
     video_url: shouldAliasMedia(req.referenceVideoUrl) ? req.referenceVideoUrl : undefined,
-    images: !compactMediaAliases && aliasImages.length > 0 ? aliasImages : undefined,
-    image_urls: !compactMediaAliases && aliasImages.length > 0 ? aliasImages : undefined,
+    images: aliasImages.length > 0 ? aliasImages : undefined,
+    image_urls: aliasImages.length > 0 ? aliasImages : undefined,
+    reference_images: aliasImages.length > 0 ? aliasImages : undefined,
+    reference_image_urls: aliasImages.length > 0 ? aliasImages : undefined,
     content: contentParts.length > 1 ? contentParts : undefined,
     contents: !compactMediaAliases && contentParts.length > 1 ? contentParts : undefined,
   };
@@ -695,7 +727,7 @@ async function generateVideoViaImageEndpoint(
 ): Promise<TaskResponse> {
   const contentParts = buildVideoContentParts(req);
   const compactMediaAliases = hasInlineVideoMedia(req);
-  const aliasImages = (req.images ?? []).filter((url) => !isInlineMediaUrl(url));
+  const aliasImages = uniqueMediaUrls([req.referenceImageUrl, ...(req.images ?? [])]);
   // Build image-generation-style body with video-specific fields
   const body: Record<string, unknown> = {
     model: req.model,
@@ -719,11 +751,11 @@ async function generateVideoViaImageEndpoint(
   if (req.fps) body.fps = req.fps;
   if (req.resolution) body.resolution = req.resolution;
   if (req.seed !== undefined) body.seed = req.seed;
-  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.startImage = req.startImage;
-  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.start_image = req.startImage;
-  if (req.startImage && !isInlineMediaUrl(req.startImage)) body.first_frame_image = req.startImage;
-  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.endImage = req.endImage;
-  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.end_image = req.endImage;
+  if (req.startImage) body.startImage = req.startImage;
+  if (req.startImage) body.start_image = req.startImage;
+  if (req.startImage) body.first_frame_image = req.startImage;
+  if (req.endImage) body.endImage = req.endImage;
+  if (req.endImage) body.end_image = req.endImage;
   if (req.generateAudio !== undefined) body.generateAudio = req.generateAudio;
   if (req.generateAudio !== undefined) body.generate_audio = req.generateAudio;
   if (req.smartDuration !== undefined) body.smartDuration = req.smartDuration;
@@ -731,15 +763,17 @@ async function generateVideoViaImageEndpoint(
   if (req.referenceMode) body.referenceMode = req.referenceMode;
   if (req.referenceMode) body.reference_mode = req.referenceMode;
   // Reference materials
-  if (req.referenceImageUrl && !isInlineMediaUrl(req.referenceImageUrl)) body.image_url = req.referenceImageUrl;
-  if (req.referenceVideoUrl && !isInlineMediaUrl(req.referenceVideoUrl)) body.video_url = req.referenceVideoUrl;
-  if (req.referenceAudioUrl && !isInlineMediaUrl(req.referenceAudioUrl)) body.audio_url = req.referenceAudioUrl;
-  if (!compactMediaAliases && aliasImages.length > 0) body.images = aliasImages;
-  if (!compactMediaAliases && aliasImages.length > 0) body.image_urls = aliasImages;
+  if (req.referenceImageUrl) body.image_url = req.referenceImageUrl;
+  if (req.referenceVideoUrl) body.video_url = req.referenceVideoUrl;
+  if (req.referenceAudioUrl) body.audio_url = req.referenceAudioUrl;
+  if (aliasImages.length > 0) body.images = aliasImages;
+  if (aliasImages.length > 0) body.image_urls = aliasImages;
+  if (aliasImages.length > 0) body.reference_images = aliasImages;
+  if (aliasImages.length > 0) body.reference_image_urls = aliasImages;
   // Compatibility aliases
-  if ((req.startImage || req.referenceImageUrl) && !isInlineMediaUrl(req.startImage || req.referenceImageUrl)) body.image_url = req.startImage || req.referenceImageUrl;
-  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.lastframe_image = req.endImage;
-  if (req.endImage && !isInlineMediaUrl(req.endImage)) body.last_frame_image = req.endImage;
+  if (req.startImage || req.referenceImageUrl) body.image_url = req.startImage || req.referenceImageUrl;
+  if (req.endImage) body.lastframe_image = req.endImage;
+  if (req.endImage) body.last_frame_image = req.endImage;
   if (req.generateAudio !== undefined) body.audio = req.generateAudio;
 
   const result = await apiRequest<{ data?: Array<{ url?: string; b64_json?: string }>; taskId?: string; status?: string; videoUrl?: string; imageUrl?: string; error?: string }>({

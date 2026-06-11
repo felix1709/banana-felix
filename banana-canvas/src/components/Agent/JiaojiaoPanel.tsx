@@ -3,8 +3,8 @@ import { useAgentStore } from "../../stores/agentStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGraphStore } from "../../stores/graphStore";
 import { useReactFlow } from "@xyflow/react";
-import { streamChatMessage, buildCanvasContext, type ChatMessageParam, type ChatMessageContent } from "../../services/chatService";
-import { getJiaojiaoSystemPrompt, isStoryboardIntent, shouldUseStoryboardSkill, parseStoryboardFromText, executePromptOptimize, parsePromptOptimizeOutput, parseOptionsFromText, splitTransitionShots, isPromptOptimizeIntent, extractPromptOptimizeText, type SplitShot } from "../../services/skillRegistry";
+import { sendChatMessage, streamChatMessage, buildCanvasContext, type ChatMessageParam } from "../../services/chatService";
+import { getJiaojiaoSystemPrompt, isStoryboardIntent, shouldUseStoryboardSkill, parseStoryboardFromText, executePromptOptimize, parsePromptOptimizeOutput, parseOptionsFromText, splitTransitionShots, isPromptOptimizeIntent, extractPromptOptimizeText, JIAOJIAO_HOME_OPTIONS, isPromptLibraryIntent, isLineArtStoryboardIntent, isEmotionDirectorRequired, type JiaojiaoSkillId, type SplitShot } from "../../services/skillRegistry";
 import { ChatBubble } from "./ChatBubble";
 import { QuickReplyOptions } from "./QuickReplyOptions";
 import { StoryboardModeSelector } from "./StoryboardModeSelector";
@@ -17,7 +17,12 @@ import type { CanvasNode, CanvasEdge } from "../../types/node";
 import { NODE_DEFAULT_SIZES, getDefaultSettings } from "../../types/node";
 import type { DeployPreview, OutputMode, StoryboardOutput } from "../../types/agent";
 import { getMentionableNodes } from "../../hooks/useMentionParser";
-import { buildReferencedImageParts, type ReferencedImagePart } from "./agentImageMentions";
+import {
+  buildReferencedImageParts,
+  buildReferencedImagePromptContext,
+  selectImageRecognitionModel,
+  type ReferencedImagePart,
+} from "./agentImageMentions";
 import { parseImageNodeSpecsForAgentCommand, type AgentImageNodeSpec } from "./agentNodeCommands";
 import { caretMenuStyle, getCaretMenuPosition, type CaretMenuPosition } from "../../utils/caretMenuPosition";
 import { CaretMenuPortal } from "../Canvas/nodes/CaretMenuPortal";
@@ -52,6 +57,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const [atQuery, setAtQuery] = useState<{ index: number; text: string } | null>(null);
   const [mentionMenuPosition, setMentionMenuPosition] = useState<CaretMenuPosition | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [activeSkillId, setActiveSkillId] = useState<JiaojiaoSkillId | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -112,16 +118,14 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   }, [panelOpen]);
 
   // Build messages for LLM — strip [OPTIONS] from history so LLM doesn't repeat them
-  const buildLLMMessages = useCallback((storyboardActive = isStoryboardActive): ChatMessageParam[] => {
-    const systemPrompt = `${getJiaojiaoSystemPrompt(storyboardActive)}
+  const buildLLMMessages = useCallback((storyboardActive = isStoryboardActive, requestedSkillId = activeSkillId): ChatMessageParam[] => {
+    const systemPrompt = `${getJiaojiaoSystemPrompt(storyboardActive, requestedSkillId)}
 
 参考图交互规则：当你需要参考图时，优先引导用户在对话框输入 @ 来引用画布上的图片。收到 @ 图片引用后，先分析图片主体、风格、色彩、构图和可用于分镜的信息，再给出下一步建议。`;
     const result: ChatMessageParam[] = [{ role: "system", content: systemPrompt }];
 
-    if (storyboardActive) {
-      const ctx = buildCanvasContext();
-      result[0].content += `\n\n当前画布上下文：\n${ctx}`;
-    }
+    const ctx = buildCanvasContext();
+    result[0].content += `\n\n当前画布上下文：\n${ctx}`;
 
     for (const msg of messages.slice(-20)) {
       if (msg.role === "user" || msg.role === "assistant") {
@@ -130,29 +134,67 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
       }
     }
     return result;
-  }, [messages, isStoryboardActive]);
+  }, [messages, isStoryboardActive, activeSkillId]);
 
   // ── Core send logic (shared by input + quick reply) ──
-  const buildUserMessageContent = useCallback((text: string, referencedImages: ReferencedImagePart[]): ChatMessageContent => {
-    if (referencedImages.length === 0) return text;
+  const recognizeReferencedImages = useCallback(async (
+    referencedImages: ReferencedImagePart[],
+    storyboardActive: boolean,
+  ): Promise<string> => {
+    if (referencedImages.length === 0) return "";
+    const recognitionModel = selectImageRecognitionModel(currentModel, remoteModels);
+    if (!recognitionModel) return "";
+
     const imageNames = referencedImages.map((image) => `@${image.nodeName}`).join("、");
-    return [
-      {
-        type: "text",
-        text: `${text}\n\n用户引用了画布图片：${imageNames}。请先分析这些参考图的主体、风格、色彩、构图和可用于分镜的信息，再给出下一步建议。`,
-      },
-      ...referencedImages.map((image) => ({
-        type: "image_url" as const,
-        image_url: { url: image.imageUrl },
-      })),
-    ];
-  }, []);
+    try {
+      return await sendChatMessage({
+        model: recognitionModel,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `请识别这些画布参考图：${imageNames}。请用中文简洁总结每张图的主体、角色/场景、构图、色彩、光影、风格，以及可用于${storyboardActive ? "分镜创作" : "后续创作"}的信息。`,
+            },
+            ...referencedImages.map((image) => ({
+              type: "image_url" as const,
+              image_url: { url: image.imageUrl },
+            })),
+          ],
+        }],
+        temperature: 0.2,
+        maxTokens: 1200,
+      });
+    } catch {
+      return "";
+    }
+  }, [currentModel, remoteModels]);
+
+  const buildUserMessageContent = useCallback((text: string, referencedImages: ReferencedImagePart[], imageAnalysis = ""): string => {
+    if (referencedImages.length === 0) return text;
+    return `${text}\n\n${buildReferencedImagePromptContext(referencedImages, {
+      storyboardActive: activeSkillId === "line-art-storyboard" || isStoryboardActive || shouldUseStoryboardSkill(skillPhase, text),
+      imageAnalysis,
+    })}`;
+  }, [activeSkillId, isStoryboardActive, skillPhase]);
 
   const sendText = useCallback(async (text: string) => {
     if (!text || status === "thinking" || status === "generating") return;
     shouldStickToBottomRef.current = true;
 
-    if (isPromptOptimizeIntent(text)) {
+    const requestedSkillId: JiaojiaoSkillId | null = isPromptLibraryIntent(text)
+      ? "prompt-library"
+      : isLineArtStoryboardIntent(text)
+        ? "line-art-storyboard"
+        : isEmotionDirectorRequired(text)
+          ? "emotion-director"
+          : activeSkillId;
+
+    if (requestedSkillId !== activeSkillId) {
+      setActiveSkillId(requestedSkillId);
+    }
+
+    if (!requestedSkillId && isPromptOptimizeIntent(text)) {
       const promptText = extractPromptOptimizeText(text);
       addMessage({ role: "user", content: text });
       setInput("");
@@ -172,21 +214,11 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         if (result.success) {
           const promptResult = parsePromptOptimizeOutput(result.data);
           if (promptResult) {
-            const deploy: DeployPreview = {
-              nodes: [{
-                id: "preview-prompt-gen",
-                type: "gen-image",
-                nodeName: "\u4f18\u5316\u63d0\u793a\u8bcd\u751f\u6210",
-                prompt: promptResult.optimized,
-                content: "",
-                settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
-                position: { x: 100, y: 100 },
-              }],
-              edges: [],
-              confirmed: false,
-            };
-            addMessage({ role: "assistant", content: `\u63d0\u793a\u8bcd\u4f18\u5316\u5b8c\u6210\uff01\n\u539f\u6587\uff1a${promptResult.original}\n\u4f18\u5316\u540e\uff1a${promptResult.optimized}`, skillCall: result });
-            deployToCanvas(deploy);
+            addMessage({
+              role: "assistant",
+              content: `提示词优化完成。\n\n## 最终提示词\n${promptResult.optimized}\n\n需要我把本次整理好的提示词，自动拆分并部署对应画布节点吗？\n\n[OPTIONS]\n- 确认部署\n- 不用，手动处理\n- 继续调整\n- ✏️ 自定义\n[/OPTIONS]`,
+              skillCall: result,
+            });
           } else {
             addMessage({ role: "assistant", content: "\u63d0\u793a\u8bcd\u4f18\u5316\u5931\u8d25\uff1a\u8fd4\u56de\u5185\u5bb9\u683c\u5f0f\u5f02\u5e38" });
           }
@@ -201,8 +233,26 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
       return;
     }
 
+    const deployConversation = messages
+      .slice(-12)
+      .map((msg) => parseOptionsFromText(msg.content).cleanText || msg.content)
+      .join("\n");
+    const requestedDeploySpecs = parseImageNodeSpecsForAgentCommand(text, `${deployConversation}\n${text}`);
+    if (requestedDeploySpecs.length > 0) {
+      addMessage({ role: "user", content: text });
+      setInput("");
+      const deploy = buildDeployFromImageNodeSpecs(requestedDeploySpecs);
+      deployToCanvas(deploy);
+      addMessage({
+        role: "assistant",
+        content: `已完成部署：只使用清洗后的有效提示词，创建 ${requestedDeploySpecs.length} 组画布节点。`,
+      });
+      setStatus("idle");
+      return;
+    }
+
     const referencedImages = buildReferencedImageParts(text, useGraphStore.getState().nodes);
-    const storyboardActiveForRequest = shouldUseStoryboardSkill(skillPhase, text);
+    const storyboardActiveForRequest = requestedSkillId === "line-art-storyboard" || shouldUseStoryboardSkill(skillPhase, text);
 
     // Auto-detect storyboard intent
     if (skillPhase === "idle" && storyboardActiveForRequest) {
@@ -215,8 +265,9 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     addMessage({ role: "assistant", content: "" });
 
     try {
-      const llmMessages = buildLLMMessages(storyboardActiveForRequest);
-      llmMessages.push({ role: "user", content: buildUserMessageContent(text, referencedImages) });
+      const imageAnalysis = await recognizeReferencedImages(referencedImages, storyboardActiveForRequest);
+      const llmMessages = buildLLMMessages(storyboardActiveForRequest, requestedSkillId);
+      llmMessages.push({ role: "user", content: buildUserMessageContent(text, referencedImages, imageAnalysis) });
 
       await streamChatMessage({
         model: currentModel,
@@ -254,7 +305,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
             deployToCanvas(deploy);
             addMessage({
               role: "assistant",
-              content: `已在画布生成 ${imageNodeSpecs.length} 个图片生成节点：${imageNodeSpecs.map((spec) => spec.nodeName).join("、")}。`,
+              content: `已按清洗后的有效提示词部署 ${imageNodeSpecs.length} 组画布节点：${imageNodeSpecs.map((spec) => spec.nodeName).join("、")}。`,
             });
           }
 
@@ -270,7 +321,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
       addMessage({ role: "assistant", content: `请求失败：${err instanceof Error ? err.message : String(err)}` });
       setStatus("idle");
     }
-  }, [status, currentModel, skillPhase, addMessage, setStatus, buildLLMMessages, buildUserMessageContent, setStreamingText, commitStreamingText, setSkillPhase, setStoryboardData]);
+  }, [activeSkillId, status, currentModel, skillPhase, messages, addMessage, setStatus, buildLLMMessages, buildUserMessageContent, recognizeReferencedImages, setStreamingText, commitStreamingText, setSkillPhase, setStoryboardData]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -379,8 +430,10 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
   const buildDeployFromImageNodeSpecs = useCallback((specs: AgentImageNodeSpec[]): DeployPreview => {
     const { nodes: existingNodes } = useGraphStore.getState();
     const previewNodes: DeployPreview["nodes"] = [];
+    const previewEdges: DeployPreview["edges"] = [];
     const genDims = NODE_DEFAULT_SIZES["gen-image"] ?? { w: 320, h: 320 };
-    const rowH = genDims.h + 30;
+    const textDims = NODE_DEFAULT_SIZES["text-node"] ?? { w: 220, h: 120 };
+    const rowH = Math.max(genDims.h, textDims.h) + 30;
 
     let startX = 100;
     let startY = 100;
@@ -391,10 +444,23 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
     }
 
     specs.forEach((spec, index) => {
+      const textId = `preview-prompt-text-${index}`;
+      const genId = `preview-prompt-gen-${index}`;
+      const rowY = startY + index * rowH;
+
       previewNodes.push({
-        id: `preview-role-image-${index}`,
-        type: "gen-image",
+        id: textId,
+        type: "text-node",
         nodeName: spec.nodeName,
+        prompt: spec.prompt,
+        content: spec.prompt,
+        settings: { ...getDefaultSettings("text-node") } as Record<string, unknown>,
+        position: { x: startX, y: rowY },
+      });
+      previewNodes.push({
+        id: genId,
+        type: "gen-image",
+        nodeName: `${spec.nodeName} 生成`,
         prompt: spec.prompt,
         content: "",
         settings: {
@@ -403,11 +469,12 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
           localPrompt: spec.prompt,
           isAutoPrompt: false,
         } as Record<string, unknown>,
-        position: { x: startX, y: startY + index * rowH },
+        position: { x: startX + textDims.w + 30, y: rowY },
       });
+      previewEdges.push({ from: textId, to: genId, fromPort: "default", toPort: "default" });
     });
 
-    return { nodes: previewNodes, edges: [], confirmed: false };
+    return { nodes: previewNodes, edges: previewEdges, confirmed: false };
   }, []);
 
   // ── Build deploy from storyboard with output mode ──
@@ -434,7 +501,9 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
     if (mode === "full-board" || mode === "hybrid") {
       const fullPrompt = buildFullStoryboardPrompt(storyboard, shots);
+      const emotionPrompt = buildStoryboardEmotionText(shots);
       const textId = "preview-text-full";
+      const emotionId = "preview-emotion-full";
       const genId = "preview-gen-full";
 
       previewNodes.push({
@@ -447,15 +516,25 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
         position: { x: startX, y: startY },
       });
       previewNodes.push({
+        id: emotionId,
+        type: "text-node",
+        nodeName: `${storyboard.title} 情绪表演`,
+        prompt: emotionPrompt,
+        content: emotionPrompt,
+        settings: { ...getDefaultSettings("text-node") } as Record<string, unknown>,
+        position: { x: startX + textDims.w + 30, y: startY },
+      });
+      previewNodes.push({
         id: genId,
         type: "gen-image",
         nodeName: `${storyboard.title} 生成`,
         prompt: fullPrompt,
         content: "",
         settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
-        position: { x: startX + textDims.w + 30, y: startY },
+        position: { x: startX + textDims.w * 2 + 60, y: startY },
       });
       previewEdges.push({ from: textId, to: genId, fromPort: "default", toPort: "default" });
+      previewEdges.push({ from: emotionId, to: genId, fromPort: "default", toPort: "default" });
     }
 
     if (mode === "per-shot" || mode === "hybrid") {
@@ -469,8 +548,10 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
         const shotPrompt = buildShotPrompt(storyboard, shot);
         const textContent = buildTextNodeContent(shot, shotPrompt);
+        const emotionText = buildShotEmotionText(shot);
         const label = shot.segmentLabel || `镜头${shot.cut}`;
         const nodeName = `${label}（${shot.time_range}）`;
+        const emotionId = `preview-emotion-${i}`;
 
         previewNodes.push({
           id: textId,
@@ -482,15 +563,25 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
           position: { x: startX, y: rowY },
         });
         previewNodes.push({
+          id: emotionId,
+          type: "text-node",
+          nodeName: `${label} 情绪表演`,
+          prompt: emotionText,
+          content: emotionText,
+          settings: { ...getDefaultSettings("text-node") } as Record<string, unknown>,
+          position: { x: startX + textDims.w + 30, y: rowY },
+        });
+        previewNodes.push({
           id: genId,
           type: "gen-image",
           nodeName: `${label} 生成`,
           prompt: shotPrompt,
           content: "",
           settings: { ...getDefaultSettings("gen-image"), model: currentModel } as Record<string, unknown>,
-          position: { x: startX + textDims.w + 30, y: rowY },
+          position: { x: startX + textDims.w * 2 + 60, y: rowY },
         });
         previewEdges.push({ from: textId, to: genId, fromPort: "default", toPort: "default" });
+        previewEdges.push({ from: emotionId, to: genId, fromPort: "default", toPort: "default" });
       }
     }
 
@@ -518,6 +609,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
 
   const handleRestart = useCallback(() => {
     resetSkill();
+    setActiveSkillId(null);
     addMessage({ role: "assistant", content: "已重置分镜创作流程，欢迎随时开始新的创作！想做什么类型的分镜？" });
   }, [resetSkill, addMessage]);
 
@@ -575,7 +667,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
       <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderBottom: "1px solid #27272a", background: "#18181b" }}>
         <span style={{ fontSize: 15 }}>🍌</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: "#facc15", whiteSpace: "nowrap" }}>蕉蕉</span>
-        <button type="button" onClick={() => { createNewSession(); setShowHistory(false); }}
+        <button type="button" onClick={() => { createNewSession(); setActiveSkillId(null); setShowHistory(false); }}
           title="新建对话"
           style={{
             width: 22, height: 22, borderRadius: 5,
@@ -636,7 +728,7 @@ export const JiaojiaoPanel = memo(function JiaojiaoPanel() {
             <div style={{ marginTop: 4 }}>想创作什么类型的作品？</div>
             <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
               <QuickReplyOptions
-                options={["帮我画分镜", "优化提示词", "聊聊创作想法"]}
+                options={JIAOJIAO_HOME_OPTIONS}
                 hint="点击选择"
                 onSelect={handleQuickReply}
                 onCustom={handleCustomInput}
@@ -839,4 +931,24 @@ function buildTextNodeContent(shot: SplitShot, _prompt: string): string {
 动作：${shot.action}
 描述：${shot.description}
 镜头：${shot.camera}`;
+}
+
+function buildShotEmotionText(shot: SplitShot): string {
+  const raw =
+    shot.performance ||
+    shot.emotion_performance ||
+    shot.emotion ||
+    shot.action ||
+    "眼神聚焦，动作克制";
+  return limitChineseText(raw, 20);
+}
+
+function buildStoryboardEmotionText(shots: SplitShot[]): string {
+  return shots
+    .map((shot) => `${shot.segmentLabel || `镜头${shot.cut}`}：${buildShotEmotionText(shot)}`)
+    .join("\n");
+}
+
+function limitChineseText(text: string, maxChars: number): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
 }

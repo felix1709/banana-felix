@@ -12,7 +12,7 @@ export function buildPanoramaPrompt({
   format,
 }: BuildPanoramaPromptParams): string {
   const sourceGuidance = hasSourceImage
-    ? "Use the provided reference image as the core scene composition, style, lighting, and material guide."
+    ? "Use the provided reference image as the target scene to extend into a 360 panorama. Preserve its main subject, spatial layout, materials, lighting, color palette, and visual identity; expand the unseen surroundings from that exact scene instead of inventing an unrelated environment."
     : "Create the scene entirely from the text description.";
   const formatGuidance = format === "cubemap"
     ? [

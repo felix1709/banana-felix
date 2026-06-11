@@ -27,6 +27,7 @@ export interface SkillDefinition {
   icon: string;
   systemPrompt: string;
   outputFormat: string;
+  sourcePath?: string;
 }
 
 // Skill 调用结果
@@ -88,6 +89,9 @@ export interface StoryboardShot {
   time_range: string;
   subject: string;
   action: string;
+  performance?: string;
+  emotion?: string;
+  emotion_performance?: string;
   description: string;
   camera: string;
   dialogue?: string;

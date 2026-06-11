@@ -14,24 +14,8 @@ interface PanoramaGenerationSpec {
 }
 
 const PANORAMA_GENERATION_SPECS: Record<PanoramaFormat, PanoramaGenerationSpec> = {
-  equirectangular: { size: "4096x2048", ratio: "2:1" },
-  cubemap: { size: "6144x1024", ratio: "6:1" },
-};
-
-const PANORAMA_HD_EXTRA: Record<string, unknown> = {
-  high_resolution: true,
-  hd: true,
-  detail_enhance: true,
-  enhance_details: true,
-  hires_fix: true,
-  hiresFix: true,
-  super_resolution: true,
-  preserve_original_resolution: true,
-  disable_downsampling: true,
-  sampling_steps: 40,
-  steps: 40,
-  cfg_scale: 7,
-  guidance_scale: 7,
+  equirectangular: { size: "3840x1920", ratio: "2:1" },
+  cubemap: { size: "3840x640", ratio: "6:1" },
 };
 
 const PANORAMA_HD_PROMPT = [
@@ -60,6 +44,6 @@ export function buildPanoramaImageRequest({
     quality: "high",
     output_format: "png",
     referenceImage: sourceImage || undefined,
-    extra: { ...PANORAMA_HD_EXTRA },
+    requireReferenceImage: !!sourceImage,
   };
 }

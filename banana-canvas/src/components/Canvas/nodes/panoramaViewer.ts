@@ -26,10 +26,7 @@ export interface CubemapLayout {
 
 export type PanoramaSourceFormat = "equirectangular" | "cubemap";
 
-const DIRECT_PREVIEW_LIMITS: Record<PanoramaSourceFormat, { width: number; height: number; pixels: number }> = {
-  equirectangular: { width: 8192, height: 4096, pixels: 48_000_000 },
-  cubemap: { width: 6144, height: 4096, pixels: 32_000_000 },
-};
+const DIRECT_PREVIEW_MAX_PIXELS = 96_000_000;
 
 export function normalizeYaw(yaw: number): number {
   return ((yaw % 360) + 360) % 360;
@@ -41,6 +38,29 @@ export function clampPitch(pitch: number): number {
 
 export function clampFov(fov: number): number {
   return Math.max(30, Math.min(100, fov));
+}
+
+export function calculateEquirectangularVerticalFov(
+  horizontalFov: number,
+  width: number,
+  height: number,
+): number {
+  if (width <= 0 || height <= 0) return clampFov(horizontalFov);
+  const horizontalRadians = (clampFov(horizontalFov) * Math.PI) / 180;
+  const verticalRadians = 2 * Math.atan(Math.tan(horizontalRadians / 2) * (height / width));
+  return (verticalRadians * 180) / Math.PI;
+}
+
+export function calculatePanoramaCanvasRenderSize(
+  clientWidth: number,
+  clientHeight: number,
+  visualWidth: number,
+  visualHeight: number,
+): { width: number; height: number } {
+  return {
+    width: Math.max(1, Math.floor(visualWidth || clientWidth)),
+    height: Math.max(1, Math.floor(visualHeight || clientHeight)),
+  };
 }
 
 export function getSafeCanvasDpr(
@@ -74,14 +94,11 @@ export function getDownsampledSize(
 export function shouldUseOriginalPanoramaImage(
   width: number,
   height: number,
-  format: PanoramaSourceFormat,
+  _format: PanoramaSourceFormat,
 ): boolean {
-  const limit = DIRECT_PREVIEW_LIMITS[format];
   return width > 0
     && height > 0
-    && width <= limit.width
-    && height <= limit.height
-    && width * height <= limit.pixels;
+    && width * height <= DIRECT_PREVIEW_MAX_PIXELS;
 }
 
 export function movePanoramaView(
@@ -207,7 +224,8 @@ export function renderEquirectangularPanorama(
   const yawCenter = normalizeYaw(view.yaw + view.offsetX * 18);
   const pitchOffset = clampPitch(view.pitch + view.offsetY * 18);
   const zoomFactor = Math.max(0.65, Math.min(1.35, 1 + view.offsetZ));
-  const sourceHeightRatio = (fov / 180) * zoomFactor;
+  const verticalFov = calculateEquirectangularVerticalFov(fov, width, height);
+  const sourceHeightRatio = (verticalFov / 180) * zoomFactor;
   const visibleSourceHeight = sourceHeight * sourceHeightRatio;
   const sourceY = Math.max(
     0,

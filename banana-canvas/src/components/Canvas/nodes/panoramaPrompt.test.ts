@@ -16,6 +16,7 @@ assert(prompt.includes("equirectangular"), "includes the selected panorama forma
 assert(prompt.includes("2:1"), "requires a 2:1 panorama aspect ratio");
 assert(prompt.includes("seamless"), "requires seamless left-right edges");
 assert(prompt.includes("reference image"), "mentions source image guidance when provided");
+assert(prompt.includes("target scene"), "treats the uploaded scene image as the target scene to extend into a panorama");
 
 const cubemapPrompt = buildPanoramaPrompt({
   userPrompt: "雪山营地",
